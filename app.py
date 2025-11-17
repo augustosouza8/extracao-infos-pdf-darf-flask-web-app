@@ -70,8 +70,8 @@ E no código, use os.getenv().
 Aqui deixo as duas opções (env + placeholder).
 """
 
-CLIENT_ID = os.getenv("MS_CLIENT_ID", "7457428f-727b-4205-aa2a-a28da53b2b45")
-CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "ecf8Q~YrXO7YfT6B1e9Nqkps-n-Gm2PqfJl9tdbh")
+CLIENT_ID = os.getenv("MS_CLIENT_ID", "INSERIR_CLIENT_ID_AQUI")
+CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "INSERIR_CLIENT_SECRET_AQUI")
 
 # Se quiser usar um tenant específico, substitua "common" pelo MS_TENANT_ID
 TENANT_ID = os.getenv("MS_TENANT_ID", "common")
