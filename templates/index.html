@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Extrator de Informações DARF</title>
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/style.css') }}"
+    />
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>📄 Extrator de Informações DARF</h1>
+            <p class="subtitle">
+                Envie um ou mais arquivos PDF de DARF e receba um arquivo Excel
+                com as informações extraídas.
+            </p>
+
+            {% if user %}
+            <div class="user-bar">
+                <span class="user-label">Logado como:</span>
+                <span class="user-name">
+                    {{ user.name or user.email }}
+                </span>
+                {% if user.email and user.name %}
+                    <span class="user-email">&lt;{{ user.email }}&gt;</span>
+                {% endif %}
+                <a href="{{ url_for('logout') }}" class="logout-button">
+                    Sair
+                </a>
+            </div>
+            {% endif %}
+        </header>
+
+        {# Mensagens de feedback (flash) #}
+        {% with messages = get_flashed_messages(with_categories=True) %}
+            {% if messages %}
+                <div class="messages">
+                    {% for category, message in messages %}
+                        <div class="alert alert-{{ category }}">
+                            {{ message }}
+                        </div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <section class="upload-container">
+            <form
+                action="{{ url_for('upload_files') }}"
+                method="post"
+                enctype="multipart/form-data"
+                id="uploadForm"
+            >
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-icon">📎</div>
+                    <h3>Selecione os arquivos PDF</h3>
+                    <p>Você pode selecionar vários arquivos de uma vez.</p>
+
+                    <input
+                        type="file"
+                        name="files"
+                        id="fileInput"
+                        multiple
+                        accept=".pdf"
+                        required
+                    />
+                    <label for="fileInput" class="file-label">
+                        Escolher arquivos
+                    </label>
+
+                    <div class="file-list" id="fileList"></div>
+                </div>
+
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary" id="submitBtn">
+                        <span class="btn-text">Processar PDFs</span>
+                        <span
+                            class="btn-loader"
+                            id="btnLoader"
+                            style="display: none"
+                        >
+                            ⏳ Processando...
+                        </span>
+                    </button>
+
+                    <button
+                        type="button"
+                        class="btn btn-secondary"
+                        id="clearBtn"
+                        style="display: none"
+                    >
+                        Limpar seleção
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <section class="info-box">
+            <h3>ℹ️ Como usar:</h3>
+            <ol>
+                <li>Clique em <strong>“Escolher arquivos”</strong> e selecione um ou mais PDFs de DARF.</li>
+                <li>Clique em <strong>“Processar PDFs”</strong>.</li>
+                <li>Aguarde o processamento.</li>
+                <li>O navegador irá baixar um arquivo <code>resultado_darfs.xlsx</code>.</li>
+            </ol>
+        </section>
+
+        <footer class="footer">
+            <p>
+                Desenvolvido para facilitar a extração de informações de DARF.
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        const fileInput = document.getElementById("fileInput");
+        const fileList = document.getElementById("fileList");
+        const clearBtn = document.getElementById("clearBtn");
+        const submitBtn = document.getElementById("submitBtn");
+        const btnText = document.querySelector("#submitBtn .btn-text");
+        const btnLoader = document.getElementById("btnLoader");
+        const uploadForm = document.getElementById("uploadForm");
+
+        function updateFileList(files) {
+            fileList.innerHTML = "";
+            if (!files || files.length === 0) {
+                clearBtn.style.display = "none";
+                return;
+            }
+
+            Array.from(files).forEach((file) => {
+                const item = document.createElement("div");
+                item.className = "file-item";
+                const sizeKb = (file.size / 1024).toFixed(1);
+                item.innerHTML = `
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-size">(${sizeKb} KB)</span>
+                `;
+                fileList.appendChild(item);
+            });
+
+            clearBtn.style.display = "inline-flex";
+        }
+
+        fileInput.addEventListener("change", (e) => {
+            updateFileList(e.target.files);
+        });
+
+        clearBtn.addEventListener("click", () => {
+            fileInput.value = "";
+            updateFileList([]);
+        });
+
+        uploadForm.addEventListener("submit", () => {
+            btnText.style.display = "none";
+            btnLoader.style.display = "inline-block";
+            submitBtn.disabled = true;
+        });
+    </script>
+</body>
+</html>
