@@ -32,7 +32,10 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 import msal  # Microsoft Authentication Library
+from dotenv import load_dotenv
 from parse_darf import processar_pdf
+
+load_dotenv()
 
 
 # ======================================================================
@@ -42,8 +45,8 @@ from parse_darf import processar_pdf
 app = Flask(__name__)
 
 # Chave secreta usada pelo Flask para assinar cookies de sessão
-# Em produção, use um valor fixo armazenado em variável de ambiente.
-app.secret_key = os.urandom(24)
+# Usa FLASK_SECRET_KEY do ambiente ou gera uma chave aleatória (não persistente)
+app.secret_key = os.getenv("FLASK_SECRET_KEY", os.urandom(24))
 
 # Limite de tamanho do upload: 100 MB
 app.config["MAX_CONTENT_LENGTH"] = 100 * 1024 * 1024
@@ -70,6 +73,7 @@ E no código, use os.getenv().
 Aqui deixo as duas opções (env + placeholder).
 """
 
+
 CLIENT_ID = os.getenv("MS_CLIENT_ID", "INSERIR_CLIENT_ID_AQUI")
 CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "INSERIR_CLIENT_SECRET_AQUI")
 
@@ -77,8 +81,9 @@ CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "INSERIR_CLIENT_SECRET_AQUI")
 TENANT_ID = os.getenv("MS_TENANT_ID", "common")
 AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 
-# Caminho de redirecionamento (precisa bater com o configurado no portal)
+# Caminho de callback e URI completa de redirecionamento
 REDIRECT_PATH = "/auth/redirect"
+REDIRECT_URI = "http://localhost:5000" + REDIRECT_PATH
 
 # Escopos de permissão que o app solicita (User.Read já é suficiente para pegar dados básicos)
 SCOPE = ["User.Read"]
@@ -121,18 +126,11 @@ def _build_msal_app(cache=None) -> msal.ConfidentialClientApplication:
 def _build_auth_url(scopes=None) -> str:
     """
     Gera a URL de login da Microsoft para o fluxo Authorization Code.
-
-    Parâmetros:
-    - scopes: lista de permissões (scopes) que desejamos solicitar.
-
-    Retorno:
-    - URL completa para onde devemos redirecionar o usuário.
+    Usa sempre REDIRECT_URI, igual ao configurado no portal.
     """
-    # redirect_uri precisa ser exatamente o mesmo registrado no portal
-    redirect_uri = request.host_url.strip("/") + REDIRECT_PATH
     return _build_msal_app().get_authorization_request_url(
         scopes or [],
-        redirect_uri=redirect_uri,
+        redirect_uri=REDIRECT_URI,
     )
 
 
@@ -199,14 +197,11 @@ def authorized():
 
     code = request.args["code"]
 
-    # Mesmo redirect_uri usado na geração da URL de login
-    redirect_uri = request.host_url.strip("/") + REDIRECT_PATH
-
     # Troca o authorization code por tokens
     result = _build_msal_app().acquire_token_by_authorization_code(
         code,
         scopes=SCOPE,
-        redirect_uri=redirect_uri,
+        redirect_uri=REDIRECT_URI,
     )
 
     # Se veio erro, mostra mensagem amigável e volta para home
