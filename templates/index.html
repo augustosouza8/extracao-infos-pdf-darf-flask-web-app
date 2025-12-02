@@ -17,21 +17,6 @@
                 Envie um ou mais arquivos PDF de DARF e receba um arquivo Excel
                 com as informações extraídas.
             </p>
-
-            {% if user %}
-            <div class="user-bar">
-                <span class="user-label">Logado como:</span>
-                <span class="user-name">
-                    {{ user.name or user.email }}
-                </span>
-                {% if user.email and user.name %}
-                    <span class="user-email">&lt;{{ user.email }}&gt;</span>
-                {% endif %}
-                <a href="{{ url_for('logout') }}" class="logout-button">
-                    Sair
-                </a>
-            </div>
-            {% endif %}
         </header>
 
         {# Mensagens de feedback (flash) #}
@@ -47,6 +32,13 @@
             {% endif %}
         {% endwith %}
 
+        {# Mensagem de sucesso dinâmica #}
+        <div id="successMessage" class="success-message">
+            <span class="success-icon">✓</span>
+            <span class="success-text">Arquivo processado com sucesso! O download foi iniciado.</span>
+            <button class="success-close" onclick="hideSuccessMessage()" aria-label="Fechar mensagem">×</button>
+        </div>
+
         <section class="upload-container">
             <form
                 action="{{ url_for('upload_files') }}"
@@ -56,8 +48,9 @@
             >
                 <div class="upload-area" id="uploadArea">
                     <div class="upload-icon">📎</div>
-                    <h3>Selecione os arquivos PDF</h3>
-                    <p>Você pode selecionar vários arquivos de uma vez.</p>
+                    <h3>Arraste e solte os arquivos PDF aqui</h3>
+                    <p>Ou clique para selecionar arquivos</p>
+                    <p style="font-size: 0.85rem; color: #888; margin-top: 4px;">Você pode selecionar vários arquivos de uma vez</p>
 
                     <input
                         type="file"
@@ -101,8 +94,8 @@
         <section class="info-box">
             <h3>ℹ️ Como usar:</h3>
             <ol>
-                <li>Clique em <strong>“Escolher arquivos”</strong> e selecione um ou mais PDFs de DARF.</li>
-                <li>Clique em <strong>“Processar PDFs”</strong>.</li>
+                <li><strong>Arraste e solte</strong> os arquivos PDF na área indicada, ou clique em <strong>"Escolher arquivos"</strong> para selecionar um ou mais PDFs de DARF.</li>
+                <li>Clique em <strong>"Processar PDFs"</strong>.</li>
                 <li>Aguarde o processamento.</li>
                 <li>O navegador irá baixar um arquivo <code>resultado_darfs.xlsx</code>.</li>
             </ol>
@@ -123,6 +116,32 @@
         const btnText = document.querySelector("#submitBtn .btn-text");
         const btnLoader = document.getElementById("btnLoader");
         const uploadForm = document.getElementById("uploadForm");
+        const uploadArea = document.getElementById("uploadArea");
+        const successMessage = document.getElementById("successMessage");
+
+        function showSuccessMessage(fileCount) {
+            const successText = successMessage.querySelector(".success-text");
+            if (fileCount && fileCount > 0) {
+                const fileWord = fileCount === 1 ? "arquivo" : "arquivos";
+                successText.textContent = `${fileCount} ${fileWord} processado(s) com sucesso! O download foi iniciado.`;
+            } else {
+                successText.textContent = "Arquivo processado com sucesso! O download foi iniciado.";
+            }
+            successMessage.classList.add("show");
+            // Esconde a mensagem automaticamente após 5 segundos
+            setTimeout(() => {
+                hideSuccessMessage();
+            }, 5000);
+        }
+
+        function hideSuccessMessage() {
+            if (successMessage) {
+                successMessage.classList.remove("show");
+            }
+        }
+
+        // Torna a função acessível globalmente para o botão de fechar
+        window.hideSuccessMessage = hideSuccessMessage;
 
         function updateFileList(files) {
             fileList.innerHTML = "";
@@ -145,6 +164,88 @@
             clearBtn.style.display = "inline-flex";
         }
 
+        function addFilesToInput(newFiles) {
+            // Cria um DataTransfer para manipular os arquivos
+            const dataTransfer = new DataTransfer();
+            
+            // Adiciona arquivos existentes do input (se houver)
+            const existingFiles = fileInput.files;
+            for (let i = 0; i < existingFiles.length; i++) {
+                dataTransfer.items.add(existingFiles[i]);
+            }
+            
+            // Adiciona os novos arquivos
+            Array.from(newFiles).forEach((file) => {
+                // Verifica se o arquivo já não foi adicionado (evita duplicatas)
+                let isDuplicate = false;
+                for (let i = 0; i < existingFiles.length; i++) {
+                    if (existingFiles[i].name === file.name && existingFiles[i].size === file.size) {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+                
+                if (!isDuplicate) {
+                    dataTransfer.items.add(file);
+                }
+            });
+            
+            // Atualiza o input com todos os arquivos
+            fileInput.files = dataTransfer.files;
+            updateFileList(fileInput.files);
+        }
+
+        function filterPDFFiles(files) {
+            return Array.from(files).filter((file) => {
+                return file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+            });
+        }
+
+        // Event listeners para drag and drop
+        uploadArea.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.add("drag-over");
+        });
+
+        uploadArea.addEventListener("dragleave", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.remove("drag-over");
+        });
+
+        uploadArea.addEventListener("drop", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            uploadArea.classList.remove("drag-over");
+            
+            const droppedFiles = e.dataTransfer.files;
+            if (droppedFiles.length > 0) {
+                const pdfFiles = filterPDFFiles(droppedFiles);
+                
+                if (pdfFiles.length === 0) {
+                    alert("Por favor, arraste apenas arquivos PDF.");
+                    return;
+                }
+                
+                if (pdfFiles.length < droppedFiles.length) {
+                    const nonPdfCount = droppedFiles.length - pdfFiles.length;
+                    alert(`${nonPdfCount} arquivo(s) não PDF foram ignorados. Apenas arquivos PDF são aceitos.`);
+                }
+                
+                addFilesToInput(pdfFiles);
+            }
+        });
+
+        // Previne o comportamento padrão de arrastar sobre a página inteira
+        document.addEventListener("dragover", (e) => {
+            e.preventDefault();
+        });
+
+        document.addEventListener("drop", (e) => {
+            e.preventDefault();
+        });
+
         fileInput.addEventListener("change", (e) => {
             updateFileList(e.target.files);
         });
@@ -154,10 +255,89 @@
             updateFileList([]);
         });
 
-        uploadForm.addEventListener("submit", () => {
+        uploadForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            
+            // Desabilita o botão e mostra "Processando"
             btnText.style.display = "none";
             btnLoader.style.display = "inline-block";
             submitBtn.disabled = true;
+            
+            // Prepara o FormData
+            const formData = new FormData(uploadForm);
+            
+            try {
+                // Faz o upload via fetch
+                const response = await fetch(uploadForm.action, {
+                    method: "POST",
+                    body: formData,
+                    redirect: "follow",
+                });
+                
+                // Verifica o tipo de conteúdo da resposta
+                const contentType = response.headers.get("content-type") || "";
+                
+                // Se a resposta é HTML (erro com redirect), recarrega a página
+                if (contentType.includes("text/html")) {
+                    window.location.reload();
+                    return;
+                }
+                
+                // Se a resposta é o arquivo Excel, faz o download
+                if (contentType.includes("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet") ||
+                    contentType.includes("application/octet-stream") ||
+                    contentType.includes("application/vnd.ms-excel")) {
+                    
+                    // Obtém o arquivo como blob
+                    const blob = await response.blob();
+                    
+                    // Obtém o nome do arquivo do header Content-Disposition ou usa o padrão
+                    const contentDisposition = response.headers.get("content-disposition");
+                    let filename = "resultado_darfs.xlsx";
+                    if (contentDisposition) {
+                        const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/);
+                        if (filenameMatch) {
+                            filename = filenameMatch[1].replace(/['"]/g, "");
+                        }
+                    }
+                    
+                    // Cria um link temporário para download
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = filename;
+                    document.body.appendChild(a);
+                    a.click();
+                    
+                    // Limpa o link temporário após um pequeno delay
+                    setTimeout(() => {
+                        window.URL.revokeObjectURL(url);
+                        document.body.removeChild(a);
+                    }, 100);
+                    
+                    // Reseta o botão e limpa os arquivos após o download
+                    btnText.style.display = "inline-block";
+                    btnLoader.style.display = "none";
+                    submitBtn.disabled = false;
+                    // Guarda a quantidade de arquivos processados antes de limpar
+                    const fileCount = fileInput.files.length;
+                    
+                    fileInput.value = "";
+                    updateFileList([]);
+                    
+                    // Mostra mensagem de sucesso com a quantidade de arquivos
+                    showSuccessMessage(fileCount);
+                    
+                } else {
+                    // Tipo de conteúdo não reconhecido, recarrega para mostrar mensagem
+                    window.location.reload();
+                }
+                
+            } catch (error) {
+                console.error("Erro ao processar arquivos:", error);
+                // Em caso de erro, recarrega a página para mostrar mensagem de erro
+                window.location.reload();
+            }
         });
     </script>
 </body>

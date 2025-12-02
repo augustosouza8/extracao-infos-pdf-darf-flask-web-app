@@ -26,3 +26,12 @@
 
 - Os PDFs enviados são processados por `parse_darf.py` e geram um Excel consolidado baixado via navegador.
 - Garanta que o `.env` não seja versionado (já está contemplado no `.gitignore`).
+
+## Suporte a PDFs Escaneados (OCR)
+
+O sistema suporta tanto PDFs com texto nativo quanto PDFs escaneados (imagens):
+
+- **PDFs com texto nativo**: O texto é extraído diretamente usando `pdfplumber`, que é rápido e preciso.
+- **PDFs escaneados**: Quando o texto extraído é insuficiente (< 100 caracteres), o sistema usa automaticamente OCR (Reconhecimento Óptico de Caracteres) com `RapidOCR-onnxruntime` para extrair o texto das imagens.
+
+O processamento com OCR é mais lento que a extração de texto nativo, mas permite processar documentos escaneados. O `RapidOCR-onnxruntime` é mais rápido que o PaddleOCR (4-5x) e não requer binários externos, funcionando apenas com `pip install`. Os modelos são baixados automaticamente na primeira execução.
