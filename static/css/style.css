@@ -282,3 +282,360 @@ body {
     font-size: 0.8rem;
     color: #666;
 }
+
+/* ======================================================================
+   TOAST NOTIFICATIONS
+   ====================================================================== */
+
+.toast-container {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    max-width: 400px;
+    pointer-events: none;
+}
+
+.toast-notification {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 20px;
+    border-radius: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    font-size: 0.95rem;
+    font-weight: 500;
+    color: white;
+    min-width: 300px;
+    max-width: 400px;
+    pointer-events: auto;
+    opacity: 0;
+    transform: translateX(400px);
+    transition: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+    animation: toastSlideIn 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+}
+
+@keyframes toastSlideIn {
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.toast-notification.toast-slide-out {
+    animation: toastSlideOut 0.3s ease-in forwards;
+}
+
+@keyframes toastSlideOut {
+    to {
+        opacity: 0;
+        transform: translateX(400px);
+    }
+}
+
+.toast-notification.toast-success {
+    background: #10b981;
+    box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+}
+
+.toast-notification.toast-error {
+    background: #ef4444;
+    box-shadow: 0 8px 24px rgba(239, 68, 68, 0.4);
+}
+
+.toast-icon {
+    font-size: 1.5rem;
+    flex-shrink: 0;
+    line-height: 1;
+}
+
+.toast-message {
+    flex: 1;
+    word-wrap: break-word;
+}
+
+.toast-close {
+    background: transparent;
+    border: none;
+    color: white;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    transition: background-color 0.2s ease;
+    flex-shrink: 0;
+}
+
+.toast-close:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+@media (max-width: 600px) {
+    .toast-container {
+        top: 10px;
+        right: 10px;
+        left: 10px;
+        max-width: none;
+    }
+
+    .toast-notification {
+        min-width: auto;
+        max-width: none;
+        transform: translateY(-100px);
+    }
+
+    @keyframes toastSlideIn {
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .toast-notification.toast-slide-out {
+        animation: toastSlideOutMobile 0.3s ease-in forwards;
+    }
+
+    @keyframes toastSlideOutMobile {
+        to {
+            opacity: 0;
+            transform: translateY(-100px);
+        }
+    }
+}
+
+/* ======================================================================
+   SEÇÃO DE GERENCIAMENTO DE REGRAS
+   ====================================================================== */
+
+.rules-section {
+    margin-top: 32px;
+    padding: 24px;
+    background: #f8f9fa;
+    border-radius: 12px;
+    border: 1px solid #e2e8f0;
+}
+
+.rules-section h2 {
+    font-size: 1.5rem;
+    margin-bottom: 8px;
+    color: #2d3748;
+}
+
+.rules-description {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+}
+
+/* Sistema de abas */
+.rules-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.tab-button {
+    padding: 10px 20px;
+    background: transparent;
+    border: none;
+    border-bottom: 3px solid transparent;
+    cursor: pointer;
+    font-size: 0.95rem;
+    color: #666;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.tab-button:hover {
+    color: #667eea;
+    background: #f0f4ff;
+}
+
+.tab-button.active {
+    color: #667eea;
+    border-bottom-color: #667eea;
+    background: #f0f4ff;
+}
+
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+.rules-header {
+    margin-bottom: 20px;
+}
+
+.rules-header h3 {
+    font-size: 1.2rem;
+    margin-bottom: 8px;
+    color: #2d3748;
+}
+
+.rules-help {
+    color: #666;
+    font-size: 0.85rem;
+    margin-bottom: 0;
+}
+
+/* Formulário de adicionar regra */
+.add-rule-form {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    padding: 16px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+    margin-bottom: 20px;
+}
+
+.form-group {
+    flex: 1;
+    min-width: 150px;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: #2d3748;
+}
+
+.form-group input,
+.form-group select {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #cbd5e0;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    transition: border-color 0.2s ease;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.add-rule-form .btn {
+    margin-top: 20px;
+    height: fit-content;
+}
+
+/* Tabela de regras */
+.rules-table-container {
+    overflow-x: auto;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0;
+}
+
+.rules-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.rules-table thead {
+    background: #f7fafc;
+}
+
+.rules-table th {
+    padding: 12px 16px;
+    text-align: left;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #2d3748;
+    border-bottom: 2px solid #e2e8f0;
+}
+
+.rules-table td {
+    padding: 12px 16px;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.9rem;
+    color: #4a5568;
+}
+
+.rules-table tbody tr:hover {
+    background: #f7fafc;
+}
+
+.rules-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.rules-table td.loading,
+.rules-table td.empty {
+    text-align: center;
+    color: #999;
+    font-style: italic;
+    padding: 24px;
+}
+
+/* Botão de deletar */
+.btn-delete {
+    background: #fee;
+    border: 1px solid #fcc;
+    border-radius: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.2s ease;
+    color: #c53030;
+}
+
+.btn-delete:hover {
+    background: #fcc;
+    border-color: #f99;
+    transform: scale(1.1);
+}
+
+.btn-delete:active {
+    transform: scale(0.95);
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .rules-section {
+        padding: 16px;
+    }
+
+    .add-rule-form {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .form-group {
+        min-width: 100%;
+    }
+
+    .add-rule-form .btn {
+        margin-top: 0;
+        width: 100%;
+    }
+
+    .rules-table {
+        font-size: 0.85rem;
+    }
+
+    .rules-table th,
+    .rules-table td {
+        padding: 8px 12px;
+    }
+}

@@ -14,3 +14,6 @@ __pycache__/
 
 # Artefatos gerados
 *.xlsx
+
+# Banco de dados local
+config.db

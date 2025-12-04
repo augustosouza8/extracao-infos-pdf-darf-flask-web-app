@@ -1215,28 +1215,49 @@ def processar_pdf(pdf_path: Path) -> list[dict]:
 # FUNÇÕES AUXILIARES: PROCESSAMENTO DE DARF PARA EXCEL
 # ==========================
 
-# Mapeamento CNPJ -> UO Contribuinte
-MAPEAMENTO_CNPJ_UO = {
-    "18.715.565/0001-10": "1071",
-    "16.745.465/0001-01": "1081",
-    "07.256.298/0001-44": "1101",
-    "16.907.746/0001-13": "1191",
-    "19.377.514/0001-99": "1221",
-    "18.715.573/0001-67": "1231",
-    "19.138.890/0001-20": "1271",
-    "18.715.581/0001-03": "1301",
-    "00.957.404/0001-78": "1371",
-    "05.487.631/0001-09": "1451",
-    "05.465.167/0001-41": "1481",
-    "05.475.103/0001-21": "1491",
-    "05.461.142/0001-70": "1501",
-    "18.715.532/0001-70": "1511",
-    "05.585.681/0001-10": "1521",
-    "08.715.327/0001-51": "1541",
-    "13.235.618/0001-82": "1631",
-    "50.629.390/0001-31": "1711",
-    "50.941.185/0001-07": "1721",
-}
+# Importa funções do módulo de configuração
+try:
+    from config_db import get_aba_por_codigo, get_uo_por_cnpj
+except ImportError:
+    # Fallback caso o módulo não esteja disponível (compatibilidade)
+    def get_aba_por_codigo(codigo: str) -> Optional[str]:
+        if not codigo:
+            return None
+        codigo_str = str(codigo).strip()
+        if codigo_str in ("1082", "1099"):
+            return "servidor"
+        elif codigo_str in ("1138", "1646"):
+            return "patronal-gilrat"
+        return None
+    
+    def get_uo_por_cnpj(cnpj: str) -> Optional[str]:
+        MAPEAMENTO_CNPJ_UO = {
+            "18.715.565/0001-10": "1071",
+            "16.745.465/0001-01": "1081",
+            "07.256.298/0001-44": "1101",
+            "16.907.746/0001-13": "1191",
+            "19.377.514/0001-99": "1221",
+            "18.715.573/0001-67": "1231",
+            "19.138.890/0001-20": "1271",
+            "18.715.581/0001-03": "1301",
+            "00.957.404/0001-78": "1371",
+            "05.487.631/0001-09": "1451",
+            "05.465.167/0001-41": "1481",
+            "05.475.103/0001-21": "1491",
+            "05.461.142/0001-70": "1501",
+            "18.715.532/0001-70": "1511",
+            "05.585.681/0001-10": "1521",
+            "08.715.327/0001-51": "1541",
+            "13.235.618/0001-82": "1631",
+            "50.629.390/0001-31": "1711",
+            "50.941.185/0001-07": "1721",
+        }
+        if not cnpj:
+            return None
+        cnpj_formatado = cnpj.strip()
+        if re.match(r"^\d{14}$", cnpj_formatado):
+            cnpj_formatado = f"{cnpj_formatado[:2]}.{cnpj_formatado[2:5]}.{cnpj_formatado[5:8]}/{cnpj_formatado[8:12]}-{cnpj_formatado[12:14]}"
+        return MAPEAMENTO_CNPJ_UO.get(cnpj_formatado)
 
 
 def determinar_aba(codigo: str) -> Optional[str]:
@@ -1247,19 +1268,9 @@ def determinar_aba(codigo: str) -> Optional[str]:
         codigo: Código extraído da DARF
         
     Returns:
-        "servidor" se código for 1082 ou 1099,
-        "patronal-gilrat" se código for 1138 ou 1646,
-        None caso contrário
+        "servidor", "patronal-gilrat" ou None se não encontrado
     """
-    if not codigo:
-        return None
-    
-    codigo_str = str(codigo).strip()
-    if codigo_str in ("1082", "1099"):
-        return "servidor"
-    elif codigo_str in ("1138", "1646"):
-        return "patronal-gilrat"
-    return None
+    return get_aba_por_codigo(codigo)
 
 
 def mapear_cnpj_uo(cnpj: str) -> str:
@@ -1272,18 +1283,8 @@ def mapear_cnpj_uo(cnpj: str) -> str:
     Returns:
         Código UO se encontrado, string vazia caso contrário
     """
-    if not cnpj:
-        return ""
-    
-    # Normaliza o CNPJ para o formato esperado (com pontos e barras)
-    cnpj_formatado = cnpj.strip()
-    
-    # Se o CNPJ não estiver formatado, tenta formatar
-    if re.match(r"^\d{14}$", cnpj_formatado):
-        # Formata: XX.XXX.XXX/XXXX-XX
-        cnpj_formatado = f"{cnpj_formatado[:2]}.{cnpj_formatado[2:5]}.{cnpj_formatado[5:8]}/{cnpj_formatado[8:12]}-{cnpj_formatado[12:14]}"
-    
-    return MAPEAMENTO_CNPJ_UO.get(cnpj_formatado, "")
+    uo = get_uo_por_cnpj(cnpj)
+    return uo if uo else ""
 
 
 def extrair_apenas_numeros(texto: str) -> str:

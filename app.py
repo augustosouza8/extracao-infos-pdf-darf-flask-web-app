@@ -27,11 +27,22 @@ from flask import (
     flash,
     redirect,
     url_for,
+    jsonify,
 )
 from werkzeug.utils import secure_filename
 
 from dotenv import load_dotenv
 from parse_darf import processar_pdf
+from config_db import (
+    get_aba_por_codigo,
+    get_uo_por_cnpj,
+    get_todos_codigos,
+    get_todos_cnpjs,
+    adicionar_codigo,
+    remover_codigo,
+    adicionar_cnpj,
+    remover_cnpj,
+)
 
 load_dotenv()
 
@@ -75,30 +86,6 @@ def allowed_file(filename: str) -> bool:
 # FUNÇÕES AUXILIARES: PROCESSAMENTO DE DARF
 # ======================================================================
 
-# Mapeamento CNPJ -> UO Contribuinte
-MAPEAMENTO_CNPJ_UO = {
-    "18.715.565/0001-10": "1071",
-    "16.745.465/0001-01": "1081",
-    "07.256.298/0001-44": "1101",
-    "16.907.746/0001-13": "1191",
-    "19.377.514/0001-99": "1221",
-    "18.715.573/0001-67": "1231",
-    "19.138.890/0001-20": "1271",
-    "18.715.581/0001-03": "1301",
-    "00.957.404/0001-78": "1371",
-    "05.487.631/0001-09": "1451",
-    "05.465.167/0001-41": "1481",
-    "05.475.103/0001-21": "1491",
-    "05.461.142/0001-70": "1501",
-    "18.715.532/0001-70": "1511",
-    "05.585.681/0001-10": "1521",
-    "08.715.327/0001-51": "1541",
-    "13.235.618/0001-82": "1631",
-    "50.629.390/0001-31": "1711",
-    "50.941.185/0001-07": "1721",
-}
-
-
 def determinar_aba(codigo: str) -> Optional[str]:
     """
     Determina em qual aba o registro deve ser inserido baseado no código.
@@ -107,19 +94,9 @@ def determinar_aba(codigo: str) -> Optional[str]:
         codigo: Código extraído da DARF
         
     Returns:
-        "servidor" se código for 1082 ou 1099,
-        "patronal-gilrat" se código for 1138 ou 1646,
-        None caso contrário
+        "servidor", "patronal-gilrat" ou None se não encontrado
     """
-    if not codigo:
-        return None
-    
-    codigo_str = str(codigo).strip()
-    if codigo_str in ("1082", "1099"):
-        return "servidor"
-    elif codigo_str in ("1138", "1646"):
-        return "patronal-gilrat"
-    return None
+    return get_aba_por_codigo(codigo)
 
 
 def mapear_cnpj_uo(cnpj: str) -> str:
@@ -132,18 +109,8 @@ def mapear_cnpj_uo(cnpj: str) -> str:
     Returns:
         Código UO se encontrado, string vazia caso contrário
     """
-    if not cnpj:
-        return ""
-    
-    # Normaliza o CNPJ para o formato esperado (com pontos e barras)
-    cnpj_formatado = cnpj.strip()
-    
-    # Se o CNPJ não estiver formatado, tenta formatar
-    if re.match(r"^\d{14}$", cnpj_formatado):
-        # Formata: XX.XXX.XXX/XXXX-XX
-        cnpj_formatado = f"{cnpj_formatado[:2]}.{cnpj_formatado[2:5]}.{cnpj_formatado[5:8]}/{cnpj_formatado[8:12]}-{cnpj_formatado[12:14]}"
-    
-    return MAPEAMENTO_CNPJ_UO.get(cnpj_formatado, "")
+    uo = get_uo_por_cnpj(cnpj)
+    return uo if uo else ""
 
 
 def extrair_apenas_numeros(texto: str) -> str:
@@ -264,6 +231,121 @@ def limpar_data(data: str) -> str:
     if not data:
         return ""
     return str(data).replace("/", "")
+
+
+# ======================================================================
+# FUNÇÕES DE COLETA E FORMATAÇÃO DE ERROS
+# ======================================================================
+
+def coletar_erros_registro(registro: dict) -> list[dict]:
+    """
+    Coleta todos os erros de um registro processado.
+    
+    Args:
+        registro: Dicionário com campos extraídos e mensagens de erro
+        
+    Returns:
+        Lista de dicionários com informações de erro estruturadas
+    """
+    erros = []
+    arquivo = registro.get("arquivo", "Desconhecido")
+    
+    # Mapeamento de campos e seus erros correspondentes
+    campos_erro = [
+        ("cnpj", "cnpj_erro", "CNPJ"),
+        ("razao_social", "razao_social_erro", "Razão Social"),
+        ("periodo_apuracao", "periodo_apuracao_erro", "Período de Apuração"),
+        ("data_vencimento", "data_vencimento_erro", "Data de Vencimento"),
+        ("numero_documento", "numero_documento_erro", "Número do Documento"),
+        ("valor_total_documento", "valor_total_documento_erro", "Valor Total do Documento"),
+        ("codigo", "codigo_erro", "Código"),
+        ("denominacao", "denominacao_erro", "Denominação"),
+        ("linha_digitavel", "linha_digitavel_erro", "Linha Digitável"),
+    ]
+    
+    # Coleta erros de campos individuais
+    for campo, campo_erro, nome_campo in campos_erro:
+        valor = registro.get(campo)
+        erro = registro.get(campo_erro)
+        
+        if erro:
+            # Determina tipo de erro baseado na mensagem
+            erro_lower = erro.lower()
+            tipo_erro = "Extração"
+            severidade = "Crítico"
+            
+            if "inválido" in erro_lower or "formato" in erro_lower or "dígitos verificadores" in erro_lower:
+                tipo_erro = "Validação"
+                severidade = "Crítico"
+            elif "não encontrado" in erro_lower or "não encontrada" in erro_lower:
+                tipo_erro = "Extração"
+                severidade = "Crítico"
+            elif "pdf vazio" in erro_lower or "erro geral" in erro_lower or "erro ao processar" in erro_lower:
+                tipo_erro = "Processamento"
+                severidade = "Crítico"
+            elif "ocr" in erro_lower or "texto insuficiente" in erro_lower:
+                tipo_erro = "Processamento"
+                severidade = "Aviso"
+            
+            erros.append({
+                "arquivo": arquivo,
+                "campo": nome_campo,
+                "tipo_erro": tipo_erro,
+                "mensagem": erro,
+                "valor_extraido": str(valor) if valor is not None else "",
+                "severidade": severidade,
+            })
+    
+    # Verifica erros de mapeamento
+    codigo = registro.get("codigo")
+    if codigo and not registro.get("codigo_erro"):
+        # Código foi extraído com sucesso, mas verifica se está mapeado
+        aba = determinar_aba(codigo)
+        if not aba:
+            erros.append({
+                "arquivo": arquivo,
+                "campo": "Código",
+                "tipo_erro": "Mapeamento",
+                "mensagem": f"Código '{codigo}' extraído mas não mapeado para nenhuma aba (servidor ou patronal-gilrat)",
+                "valor_extraido": codigo,
+                "severidade": "Aviso",
+            })
+    
+    cnpj = registro.get("cnpj")
+    if cnpj and not registro.get("cnpj_erro"):
+        # CNPJ foi extraído com sucesso, mas verifica se tem UO mapeada
+        uo = mapear_cnpj_uo(cnpj)
+        if not uo:
+            erros.append({
+                "arquivo": arquivo,
+                "campo": "CNPJ",
+                "tipo_erro": "Mapeamento",
+                "mensagem": f"CNPJ '{cnpj}' extraído mas não possui UO Contribuinte mapeada",
+                "valor_extraido": cnpj,
+                "severidade": "Aviso",
+            })
+    
+    return erros
+
+
+def formatar_linha_erro(erro: dict) -> dict:
+    """
+    Formata um erro para a aba de erros do Excel.
+    
+    Args:
+        erro: Dicionário com informações de erro
+        
+    Returns:
+        Dicionário formatado para a aba de erros
+    """
+    return {
+        "Arquivo": erro.get("arquivo", ""),
+        "Campo": erro.get("campo", ""),
+        "Tipo de Erro": erro.get("tipo_erro", ""),
+        "Mensagem": erro.get("mensagem", ""),
+        "Valor Extraído": erro.get("valor_extraido", ""),
+        "Severidade": erro.get("severidade", ""),
+    }
 
 
 # ======================================================================
@@ -460,11 +542,17 @@ def upload_files():
             flash("Nenhum arquivo foi processado com sucesso.", "error")
             return redirect(url_for("index"))
 
-        # Separa registros por aba baseado no código
+        # Separa registros por aba baseado no código e coleta erros
         registros_servidor = []
         registros_patronal = []
+        todos_erros = []
         
         for registro in registros:
+            # Coleta erros do registro
+            erros_registro = coletar_erros_registro(registro)
+            todos_erros.extend(erros_registro)
+            
+            # Separa por aba
             codigo = registro.get("codigo", "")
             aba = determinar_aba(codigo)
             
@@ -482,6 +570,10 @@ def upload_files():
         # Cria DataFrames para cada aba
         df_servidor = pd.DataFrame(registros_servidor) if registros_servidor else pd.DataFrame()
         df_patronal = pd.DataFrame(registros_patronal) if registros_patronal else pd.DataFrame()
+        
+        # Formata erros para a aba de erros
+        erros_formatados = [formatar_linha_erro(erro) for erro in todos_erros]
+        df_erros = pd.DataFrame(erros_formatados) if erros_formatados else pd.DataFrame()
 
         # Salva o Excel com múltiplas abas usando ExcelWriter
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -500,6 +592,14 @@ def upload_files():
                 # Cria aba vazia com cabeçalhos
                 df_vazio_patronal = pd.DataFrame(columns=formatar_linha_patronal_gilrat({}).keys())
                 df_vazio_patronal.to_excel(writer, sheet_name="patronal-gilrat", index=False)
+            
+            # Escreve a aba "erros" (mesmo que vazia)
+            if erros_formatados:
+                df_erros.to_excel(writer, sheet_name="erros", index=False)
+            else:
+                # Cria aba vazia com cabeçalhos
+                df_vazio_erros = pd.DataFrame(columns=["Arquivo", "Campo", "Tipo de Erro", "Mensagem", "Valor Extraído", "Severidade"])
+                df_vazio_erros.to_excel(writer, sheet_name="erros", index=False)
 
         # Envia o arquivo para download
         return send_file(
@@ -516,6 +616,131 @@ def upload_files():
         # Captura qualquer erro inesperado no fluxo geral
         flash(f"Ocorreu um erro inesperado: {str(e)}", "error")
         return redirect(url_for("index"))
+
+
+# ======================================================================
+# ROTAS API PARA GERENCIAMENTO DE REGRAS
+# ======================================================================
+
+@app.route("/api/regras", methods=["GET"])
+def api_get_regras():
+    """
+    Retorna todas as regras (códigos e CNPJs).
+    
+    Returns:
+        JSON com códigos e CNPJs
+    """
+    try:
+        codigos = get_todos_codigos()
+        cnpjs = get_todos_cnpjs()
+        return jsonify({
+            "codigos": codigos,
+            "cnpjs": cnpjs,
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/regras/codigo", methods=["POST"])
+def api_adicionar_codigo():
+    """
+    Adiciona um novo código → aba.
+    
+    Body JSON:
+        {
+            "codigo": "1234",
+            "aba": "servidor" ou "patronal-gilrat"
+        }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Dados não fornecidos"}), 400
+        
+        codigo = data.get("codigo", "").strip()
+        aba = data.get("aba", "").strip()
+        
+        if not codigo or not aba:
+            return jsonify({"error": "Código e aba são obrigatórios"}), 400
+        
+        sucesso, mensagem = adicionar_codigo(codigo, aba)
+        
+        if sucesso:
+            return jsonify({"success": True, "message": mensagem}), 200
+        else:
+            return jsonify({"success": False, "error": mensagem}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/regras/codigo/<codigo>", methods=["DELETE"])
+def api_remover_codigo(codigo):
+    """
+    Remove um código → aba.
+    
+    Args:
+        codigo: Código a remover
+    """
+    try:
+        sucesso, mensagem = remover_codigo(codigo)
+        
+        if sucesso:
+            return jsonify({"success": True, "message": mensagem}), 200
+        else:
+            return jsonify({"success": False, "error": mensagem}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/regras/cnpj", methods=["POST"])
+def api_adicionar_cnpj():
+    """
+    Adiciona um novo CNPJ → UO Contribuinte.
+    
+    Body JSON:
+        {
+            "cnpj": "12.345.678/0001-90",
+            "uo_contribuinte": "1071"
+        }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Dados não fornecidos"}), 400
+        
+        cnpj = data.get("cnpj", "").strip()
+        uo_contribuinte = data.get("uo_contribuinte", "").strip()
+        
+        if not cnpj or not uo_contribuinte:
+            return jsonify({"error": "CNPJ e UO Contribuinte são obrigatórios"}), 400
+        
+        sucesso, mensagem = adicionar_cnpj(cnpj, uo_contribuinte)
+        
+        if sucesso:
+            return jsonify({"success": True, "message": mensagem}), 200
+        else:
+            return jsonify({"success": False, "error": mensagem}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/regras/cnpj/<path:cnpj>", methods=["DELETE"])
+def api_remover_cnpj(cnpj):
+    """
+    Remove um CNPJ → UO Contribuinte.
+    
+    Args:
+        cnpj: CNPJ a remover (formatado ou não)
+    """
+    try:
+        sucesso, mensagem = remover_cnpj(cnpj)
+        
+        if sucesso:
+            return jsonify({"success": True, "message": mensagem}), 200
+        else:
+            return jsonify({"success": False, "error": mensagem}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 # ======================================================================

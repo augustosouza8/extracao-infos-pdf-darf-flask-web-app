@@ -39,6 +39,9 @@
             <button class="success-close" onclick="hideSuccessMessage()" aria-label="Fechar mensagem">×</button>
         </div>
 
+        {# Container para toast notifications #}
+        <div id="toastContainer" class="toast-container"></div>
+
         <section class="upload-container">
             <form
                 action="{{ url_for('upload_files') }}"
@@ -99,6 +102,121 @@
                 <li>Aguarde o processamento.</li>
                 <li>O navegador irá baixar um arquivo <code>resultado_darfs.xlsx</code>.</li>
             </ol>
+        </section>
+
+        <section class="rules-section">
+            <h2>⚙️ Gerenciar Regras</h2>
+            <p class="rules-description">
+                Gerencie as regras de mapeamento que determinam como os PDFs são processados.
+            </p>
+
+            <div class="rules-tabs">
+                <button class="tab-button active" data-tab="codigos">Códigos → Abas</button>
+                <button class="tab-button" data-tab="cnpjs">CNPJ → UO Contribuinte</button>
+            </div>
+
+            <!-- Tab: Códigos → Abas -->
+            <div class="tab-content active" id="tab-codigos">
+                <div class="rules-header">
+                    <h3>Códigos para Abas</h3>
+                    <p class="rules-help">
+                        Defina quais códigos extraídos do PDF devem ir para a aba "servidor" ou "patronal-gilrat".
+                    </p>
+                </div>
+
+                <form class="add-rule-form" id="form-codigo">
+                    <div class="form-group">
+                        <label for="codigo-input">Código (4 dígitos):</label>
+                        <input
+                            type="text"
+                            id="codigo-input"
+                            name="codigo"
+                            pattern="\d{4}"
+                            maxlength="4"
+                            placeholder="Ex: 1082"
+                            required
+                        />
+                    </div>
+                    <div class="form-group">
+                        <label for="aba-select">Aba:</label>
+                        <select id="aba-select" name="aba" required>
+                            <option value="">Selecione...</option>
+                            <option value="servidor">Servidor</option>
+                            <option value="patronal-gilrat">Patronal-GILRAT</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Adicionar</button>
+                </form>
+
+                <div class="rules-table-container">
+                    <table class="rules-table" id="table-codigos">
+                        <thead>
+                            <tr>
+                                <th>Código</th>
+                                <th>Aba</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-codigos">
+                            <tr>
+                                <td colspan="3" class="loading">Carregando...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Tab: CNPJ → UO Contribuinte -->
+            <div class="tab-content" id="tab-cnpjs">
+                <div class="rules-header">
+                    <h3>CNPJ para UO Contribuinte</h3>
+                    <p class="rules-help">
+                        Defina o mapeamento entre CNPJs e seus códigos de UO Contribuinte correspondentes.
+                    </p>
+                </div>
+
+                <form class="add-rule-form" id="form-cnpj">
+                    <div class="form-group">
+                        <label for="cnpj-input">CNPJ:</label>
+                        <input
+                            type="text"
+                            id="cnpj-input"
+                            name="cnpj"
+                            placeholder="Ex: 18.715.565/0001-10"
+                            required
+                        />
+                    </div>
+                    <div class="form-group">
+                        <label for="uo-input">UO Contribuinte:</label>
+                        <input
+                            type="text"
+                            id="uo-input"
+                            name="uo_contribuinte"
+                            pattern="\d+"
+                            placeholder="Ex: 1071"
+                            required
+                        />
+                    </div>
+                    <button type="submit" class="btn btn-primary">Adicionar</button>
+                </form>
+
+                <div class="rules-table-container">
+                    <table class="rules-table" id="table-cnpjs">
+                        <thead>
+                            <tr>
+                                <th>CNPJ</th>
+                                <th>UO Contribuinte</th>
+                                <th>Ações</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody-cnpjs">
+                            <tr>
+                                <td colspan="3" class="loading">Carregando...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </section>
 
         <footer class="footer">
@@ -339,6 +457,280 @@
                 window.location.reload();
             }
         });
+
+        // ======================================================================
+        // GERENCIAMENTO DE REGRAS
+        // ======================================================================
+
+        // Sistema de abas
+        const tabButtons = document.querySelectorAll(".tab-button");
+        const tabContents = document.querySelectorAll(".tab-content");
+
+        tabButtons.forEach((button) => {
+            button.addEventListener("click", () => {
+                const targetTab = button.getAttribute("data-tab");
+                
+                // Remove active de todos os botões e conteúdos
+                tabButtons.forEach((btn) => btn.classList.remove("active"));
+                tabContents.forEach((content) => content.classList.remove("active"));
+                
+                // Adiciona active ao botão e conteúdo selecionados
+                button.classList.add("active");
+                document.getElementById(`tab-${targetTab}`).classList.add("active");
+            });
+        });
+
+        // Função para mostrar mensagem de feedback (mantida para compatibilidade)
+        function showMessage(message, isError = false) {
+            showToast(message, isError ? "error" : "success");
+        }
+
+        // Função para mostrar toast notification
+        function showToast(message, type = "success", duration = 5000) {
+            const toastContainer = document.getElementById("toastContainer");
+            if (!toastContainer) {
+                console.error("Toast container não encontrado");
+                return;
+            }
+
+            // Cria o elemento toast
+            const toast = document.createElement("div");
+            toast.className = `toast-notification toast-${type}`;
+            
+            // Ícone baseado no tipo
+            const icon = type === "success" ? "✓" : "✕";
+            
+            toast.innerHTML = `
+                <span class="toast-icon">${icon}</span>
+                <span class="toast-message">${message}</span>
+                <button class="toast-close" onclick="this.parentElement.remove()" aria-label="Fechar notificação">×</button>
+            `;
+            
+            // Adiciona ao container
+            toastContainer.appendChild(toast);
+            
+            // Scroll suave para a notificação se necessário
+            setTimeout(() => {
+                toast.scrollIntoView({ behavior: "smooth", block: "nearest" });
+            }, 100);
+            
+            // Remove automaticamente após a duração especificada
+            const timeoutId = setTimeout(() => {
+                removeToast(toast);
+            }, duration);
+            
+            // Remove o timeout se o usuário fechar manualmente
+            toast.querySelector(".toast-close").addEventListener("click", () => {
+                clearTimeout(timeoutId);
+            });
+        }
+
+        // Função para remover toast com animação
+        function removeToast(toast) {
+            if (!toast || !toast.parentElement) return;
+            
+            toast.classList.add("toast-slide-out");
+            setTimeout(() => {
+                if (toast.parentElement) {
+                    toast.remove();
+                }
+            }, 300);
+        }
+
+        // Carregar regras ao carregar a página
+        async function loadRules() {
+            try {
+                const response = await fetch("/api/regras");
+                const data = await response.json();
+                
+                if (response.ok) {
+                    renderCodigos(data.codigos);
+                    renderCnpjs(data.cnpjs);
+                } else {
+                    showToast("Erro ao carregar regras: " + (data.error || "Erro desconhecido"), "error", 6000);
+                }
+            } catch (error) {
+                console.error("Erro ao carregar regras:", error);
+                showToast("Erro ao carregar regras. Tente recarregar a página.", "error", 6000);
+            }
+        }
+
+        // Renderizar tabela de códigos
+        function renderCodigos(codigos) {
+            const tbody = document.getElementById("tbody-codigos");
+            tbody.innerHTML = "";
+            
+            if (codigos.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="empty">Nenhum código cadastrado.</td></tr>';
+                return;
+            }
+            
+            codigos.forEach((item) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td><strong>${item.codigo}</strong></td>
+                    <td>${item.aba === "servidor" ? "Servidor" : "Patronal-GILRAT"}</td>
+                    <td>
+                        <button class="btn-delete" onclick="deleteCodigo('${item.codigo}')" title="Remover">
+                            🗑️
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Renderizar tabela de CNPJs
+        function renderCnpjs(cnpjs) {
+            const tbody = document.getElementById("tbody-cnpjs");
+            tbody.innerHTML = "";
+            
+            if (cnpjs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" class="empty">Nenhum CNPJ cadastrado.</td></tr>';
+                return;
+            }
+            
+            cnpjs.forEach((item) => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td><strong>${item.cnpj}</strong></td>
+                    <td>${item.uo_contribuinte}</td>
+                    <td>
+                        <button class="btn-delete" onclick="deleteCnpj('${item.cnpj}')" title="Remover">
+                            🗑️
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Adicionar código
+        document.getElementById("form-codigo").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            
+            const codigo = document.getElementById("codigo-input").value.trim();
+            const aba = document.getElementById("aba-select").value;
+            
+            if (!codigo || !aba) {
+                showToast("Por favor, preencha todos os campos.", "error", 5000);
+                return;
+            }
+            
+            try {
+                const response = await fetch("/api/regras/codigo", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ codigo, aba }),
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(data.message, "success", 4000);
+                    document.getElementById("form-codigo").reset();
+                    loadRules();
+                } else {
+                    showToast(data.error || "Erro ao adicionar código", "error", 6000);
+                }
+            } catch (error) {
+                console.error("Erro ao adicionar código:", error);
+                showToast("Erro ao adicionar código. Tente novamente.", "error", 6000);
+            }
+        });
+
+        // Adicionar CNPJ
+        document.getElementById("form-cnpj").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            
+            const cnpj = document.getElementById("cnpj-input").value.trim();
+            const uo_contribuinte = document.getElementById("uo-input").value.trim();
+            
+            if (!cnpj || !uo_contribuinte) {
+                showToast("Por favor, preencha todos os campos.", "error", 5000);
+                return;
+            }
+            
+            try {
+                const response = await fetch("/api/regras/cnpj", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                    },
+                    body: JSON.stringify({ cnpj, uo_contribuinte }),
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(data.message, "success", 4000);
+                    document.getElementById("form-cnpj").reset();
+                    loadRules();
+                } else {
+                    showToast(data.error || "Erro ao adicionar CNPJ", "error", 6000);
+                }
+            } catch (error) {
+                console.error("Erro ao adicionar CNPJ:", error);
+                showToast("Erro ao adicionar CNPJ. Tente novamente.", "error", 6000);
+            }
+        });
+
+        // Deletar código
+        window.deleteCodigo = async function(codigo) {
+            if (!confirm(`Tem certeza que deseja remover o código ${codigo}?`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/regras/codigo/${codigo}`, {
+                    method: "DELETE",
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(data.message, "success", 4000);
+                    loadRules();
+                } else {
+                    showToast(data.error || "Erro ao remover código", "error", 6000);
+                }
+            } catch (error) {
+                console.error("Erro ao remover código:", error);
+                showToast("Erro ao remover código. Tente novamente.", "error", 6000);
+            }
+        };
+
+        // Deletar CNPJ
+        window.deleteCnpj = async function(cnpj) {
+            if (!confirm(`Tem certeza que deseja remover o CNPJ ${cnpj}?`)) {
+                return;
+            }
+            
+            try {
+                // Codifica o CNPJ para URL (pode conter caracteres especiais)
+                const encodedCnpj = encodeURIComponent(cnpj);
+                const response = await fetch(`/api/regras/cnpj/${encodedCnpj}`, {
+                    method: "DELETE",
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    showToast(data.message, "success", 4000);
+                    loadRules();
+                } else {
+                    showToast(data.error || "Erro ao remover CNPJ", "error", 6000);
+                }
+            } catch (error) {
+                console.error("Erro ao remover CNPJ:", error);
+                showToast("Erro ao remover CNPJ. Tente novamente.", "error", 6000);
+            }
+        };
+
+        // Carregar regras quando a página carregar
+        loadRules();
     </script>
 </body>
 </html>
