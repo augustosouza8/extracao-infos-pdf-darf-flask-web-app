@@ -1,8 +1,8 @@
 """
-Ponto de entrada da aplicação Flask.
+Ponto de entrada WSGI da aplicação Flask.
 
-Este arquivo mantém compatibilidade com gunicorn (app:app) e serve
-como ponto de entrada para a aplicação.
+Este arquivo é usado pelo gunicorn (wsgi:app) e serve
+como ponto de entrada para a aplicação em produção.
 """
 
 import os
