@@ -756,4 +756,8 @@ if __name__ == "__main__":
     - debug=True recarrega o servidor automaticamente em mudanças de código.
       Em produção, o ideal é usar um servidor WSGI (gunicorn, etc.).
     """
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    # Em produção, o Render usa gunicorn e define a porta via variável PORT
+    # Em desenvolvimento, usa porta 5000
+    port = int(os.getenv("PORT", 5000))
+    debug = os.getenv("FLASK_ENV") != "production"
+    app.run(debug=debug, host="0.0.0.0", port=port)

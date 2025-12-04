@@ -10,12 +10,27 @@ Valores padrão são inseridos na primeira inicialização.
 """
 
 import sqlite3
+import os
 import re
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 
 # Caminho do banco de dados
-DB_PATH = Path(__file__).parent / "config.db"
+# No Render, usa volume persistente se disponível, senão usa diretório do projeto
+# Render define RENDER_VOLUME_PATH ou podemos usar /opt/render/project/src/data
+if os.getenv("RENDER_VOLUME_PATH"):
+    # Volume persistente configurado no Render
+    DB_DIR = Path(os.getenv("RENDER_VOLUME_PATH"))
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    DB_PATH = DB_DIR / "config.db"
+elif os.path.exists("/opt/render/project/src"):
+    # Render sem volume - tenta usar diretório data dentro do projeto
+    DB_DIR = Path("/opt/render/project/src/data")
+    DB_DIR.mkdir(parents=True, exist_ok=True)
+    DB_PATH = DB_DIR / "config.db"
+else:
+    # Desenvolvimento local ou fallback
+    DB_PATH = Path(__file__).parent / "config.db"
 
 # Valores padrão para códigos → abas
 CODIGOS_PADRAO = [

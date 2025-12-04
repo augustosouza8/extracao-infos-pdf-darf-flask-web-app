@@ -48,7 +48,33 @@ AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
 
 # Caminho de callback e URI completa de redirecionamento
 REDIRECT_PATH = "/auth/redirect"
-REDIRECT_URI = "http://localhost:5000" + REDIRECT_PATH
+
+# REDIRECT_URI dinâmico baseado no ambiente
+# Em produção (Render), usa variável de ambiente ou detecta automaticamente
+def get_redirect_uri():
+    """
+    Retorna a URI de redirecionamento baseada no ambiente.
+    
+    Prioridade:
+    1. Variável de ambiente RENDER_EXTERNAL_URL (Render)
+    2. Variável de ambiente REDIRECT_URI
+    3. Request host (se disponível)
+    4. Fallback para localhost em desenvolvimento
+    """
+    # Render define RENDER_EXTERNAL_URL automaticamente
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    if render_url:
+        return render_url.rstrip("/") + REDIRECT_PATH
+    
+    # Variável de ambiente customizada
+    custom_uri = os.getenv("REDIRECT_URI")
+    if custom_uri:
+        return custom_uri.rstrip("/") + REDIRECT_PATH
+    
+    # Fallback para localhost em desenvolvimento
+    return "http://localhost:5000" + REDIRECT_PATH
+
+REDIRECT_URI = get_redirect_uri()
 
 # Escopos de permissão que o app solicita (User.Read já é suficiente para pegar dados básicos)
 SCOPE = ["User.Read"]
@@ -81,7 +107,14 @@ def _build_auth_url(scopes=None) -> str:
     """
     Gera a URL de login da Microsoft para o fluxo Authorization Code.
     Usa sempre REDIRECT_URI, igual ao configurado no portal.
+    Atualiza REDIRECT_URI dinamicamente antes de usar.
     """
+    # Atualiza REDIRECT_URI se necessário (para produção)
+    global REDIRECT_URI
+    render_url = os.getenv("RENDER_EXTERNAL_URL")
+    if render_url:
+        REDIRECT_URI = render_url.rstrip("/") + REDIRECT_PATH
+    
     return _build_msal_app().get_authorization_request_url(
         scopes or [],
         redirect_uri=REDIRECT_URI,
@@ -139,6 +172,18 @@ def setup_msal_auth(app, redirect_uri=None):
     
     if redirect_uri:
         REDIRECT_URI = redirect_uri
+    else:
+        # Atualiza REDIRECT_URI dinamicamente baseado no request context
+        # Isso permite que funcione tanto em desenvolvimento quanto em produção
+        @app.before_request
+        def update_redirect_uri():
+            global REDIRECT_URI
+            from flask import request
+            # Se estiver em produção e não tiver variável de ambiente, usa o host do request
+            if not os.getenv("RENDER_EXTERNAL_URL") and not os.getenv("REDIRECT_URI"):
+                if request.host_url:
+                    scheme = "https" if request.is_secure else "http"
+                    REDIRECT_URI = f"{scheme}://{request.host}{REDIRECT_PATH}"
 
     @app.route("/login")
     def msal_login():
@@ -172,6 +217,16 @@ def setup_msal_auth(app, redirect_uri=None):
             return redirect(url_for("index"))
 
         code = request.args["code"]
+
+        # Atualiza REDIRECT_URI se necessário (para produção)
+        global REDIRECT_URI
+        render_url = os.getenv("RENDER_EXTERNAL_URL")
+        if render_url:
+            REDIRECT_URI = render_url.rstrip("/") + REDIRECT_PATH
+        elif not os.getenv("REDIRECT_URI"):
+            # Usa o host do request como fallback
+            scheme = "https" if request.is_secure else "http"
+            REDIRECT_URI = f"{scheme}://{request.host}{REDIRECT_PATH}"
 
         # Troca o authorization code por tokens
         result = _build_msal_app().acquire_token_by_authorization_code(
