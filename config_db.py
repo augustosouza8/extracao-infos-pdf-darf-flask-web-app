@@ -1,5 +1,7 @@
 """
-Módulo de gerenciamento de configurações usando SQLite.
+Módulo de gerenciamento de configurações usando SQLAlchemy.
+
+Suporta PostgreSQL (produção no Render) e SQLite (desenvolvimento local).
 
 Gerencia as regras de mapeamento:
 - Códigos → Abas (servidor/patronal-gilrat)
@@ -9,28 +11,17 @@ O banco de dados é criado automaticamente se não existir.
 Valores padrão são inseridos na primeira inicialização.
 """
 
-import sqlite3
 import os
 import re
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 
-# Caminho do banco de dados
-# No Render, usa volume persistente se disponível, senão usa diretório do projeto
-# Render define RENDER_VOLUME_PATH ou podemos usar /opt/render/project/src/data
-if os.getenv("RENDER_VOLUME_PATH"):
-    # Volume persistente configurado no Render
-    DB_DIR = Path(os.getenv("RENDER_VOLUME_PATH"))
-    DB_DIR.mkdir(parents=True, exist_ok=True)
-    DB_PATH = DB_DIR / "config.db"
-elif os.path.exists("/opt/render/project/src"):
-    # Render sem volume - tenta usar diretório data dentro do projeto
-    DB_DIR = Path("/opt/render/project/src/data")
-    DB_DIR.mkdir(parents=True, exist_ok=True)
-    DB_PATH = DB_DIR / "config.db"
-else:
-    # Desenvolvimento local ou fallback
-    DB_PATH = Path(__file__).parent / "config.db"
+from sqlalchemy import create_engine, Column, String, CheckConstraint, text
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from sqlalchemy.exc import SQLAlchemyError
+
+# Base para modelos SQLAlchemy
+Base = declarative_base()
 
 # Valores padrão para códigos → abas
 CODIGOS_PADRAO = [
@@ -63,6 +54,123 @@ CNPJS_PADRAO = [
     ("50.941.185/0001-07", "1721"),
 ]
 
+
+# ======================================================================
+# MODELOS SQLALCHEMY
+# ======================================================================
+
+class CodigoAba(Base):
+    """Modelo para tabela de códigos → abas."""
+    __tablename__ = "codigo_aba"
+    
+    codigo = Column(String, primary_key=True)
+    aba = Column(String, nullable=False)
+    
+    __table_args__ = (
+        CheckConstraint("aba IN ('servidor', 'patronal-gilrat')", name="check_aba"),
+    )
+
+
+class CnpjUo(Base):
+    """Modelo para tabela de CNPJ → UO Contribuinte."""
+    __tablename__ = "cnpj_uo"
+    
+    cnpj = Column(String, primary_key=True)
+    uo_contribuinte = Column(String, nullable=False)
+
+
+# ======================================================================
+# CONFIGURAÇÃO DO BANCO DE DADOS
+# ======================================================================
+
+def get_database_url() -> str:
+    """
+    Retorna a URL de conexão do banco de dados.
+    
+    Prioridade:
+    1. DATABASE_URL (PostgreSQL no Render)
+    2. SQLite local (desenvolvimento)
+    """
+    # PostgreSQL no Render (produção)
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        # Render pode fornecer postgres:// mas SQLAlchemy precisa postgresql://
+        if database_url.startswith("postgres://"):
+            database_url = database_url.replace("postgres://", "postgresql://", 1)
+        return database_url
+    
+    # SQLite local (desenvolvimento)
+    db_path = Path(__file__).parent / "config.db"
+    return f"sqlite:///{db_path}"
+
+
+# Cria engine e sessionmaker
+_engine = None
+_SessionLocal = None
+
+
+def get_engine():
+    """Retorna o engine SQLAlchemy (singleton)."""
+    global _engine
+    if _engine is None:
+        database_url = get_database_url()
+        _engine = create_engine(
+            database_url,
+            echo=False,  # Mude para True para debug SQL
+            pool_pre_ping=True,  # Verifica conexões antes de usar (importante para PostgreSQL)
+        )
+    return _engine
+
+
+def get_session() -> Session:
+    """Retorna uma sessão SQLAlchemy."""
+    global _SessionLocal
+    if _SessionLocal is None:
+        _SessionLocal = sessionmaker(bind=get_engine())
+    return _SessionLocal()
+
+
+def init_db():
+    """
+    Inicializa o banco de dados criando as tabelas se não existirem
+    e populando com valores padrão se estiverem vazias.
+    """
+    engine = get_engine()
+    
+    # Cria todas as tabelas
+    Base.metadata.create_all(engine)
+    
+    # Popula com valores padrão se as tabelas estiverem vazias
+    session = get_session()
+    try:
+        # Verifica se codigo_aba está vazia
+        count_codigos = session.query(CodigoAba).count()
+        if count_codigos == 0:
+            for codigo, aba in CODIGOS_PADRAO:
+                session.add(CodigoAba(codigo=codigo, aba=aba))
+            session.commit()
+        
+        # Verifica se cnpj_uo está vazia
+        count_cnpjs = session.query(CnpjUo).count()
+        if count_cnpjs == 0:
+            for cnpj, uo in CNPJS_PADRAO:
+                session.add(CnpjUo(cnpj=cnpj, uo_contribuinte=uo))
+            session.commit()
+    except Exception as e:
+        session.rollback()
+        print(f"Erro ao inicializar banco de dados: {e}")
+        raise
+    finally:
+        session.close()
+
+
+# Inicializa o banco na importação do módulo
+init_db()
+
+
+# ======================================================================
+# FUNÇÕES AUXILIARES
+# ======================================================================
 
 def normalizar_cnpj(cnpj: str) -> str:
     """Remove caracteres não numéricos do CNPJ."""
@@ -119,65 +227,6 @@ def validar_cnpj(cnpj: str) -> bool:
     return digits[-2:] == dv1 + dv2
 
 
-def get_connection():
-    """Retorna uma conexão com o banco de dados SQLite."""
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    return conn
-
-
-def init_db():
-    """
-    Inicializa o banco de dados criando as tabelas se não existirem
-    e populando com valores padrão se estiverem vazias.
-    """
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    try:
-        # Cria tabela de códigos → abas
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS codigo_aba (
-                codigo TEXT PRIMARY KEY,
-                aba TEXT NOT NULL CHECK(aba IN ('servidor', 'patronal-gilrat'))
-            )
-        """)
-        
-        # Cria tabela de CNPJ → UO Contribuinte
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS cnpj_uo (
-                cnpj TEXT PRIMARY KEY,
-                uo_contribuinte TEXT NOT NULL
-            )
-        """)
-        
-        conn.commit()
-        
-        # Verifica se as tabelas estão vazias e popula com valores padrão
-        cursor.execute("SELECT COUNT(*) FROM codigo_aba")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany(
-                "INSERT INTO codigo_aba (codigo, aba) VALUES (?, ?)",
-                CODIGOS_PADRAO
-            )
-            conn.commit()
-        
-        cursor.execute("SELECT COUNT(*) FROM cnpj_uo")
-        if cursor.fetchone()[0] == 0:
-            cursor.executemany(
-                "INSERT INTO cnpj_uo (cnpj, uo_contribuinte) VALUES (?, ?)",
-                CNPJS_PADRAO
-            )
-            conn.commit()
-            
-    finally:
-        conn.close()
-
-
-# Inicializa o banco na importação do módulo
-init_db()
-
-
 # ======================================================================
 # FUNÇÕES PARA CÓDIGOS → ABAS
 # ======================================================================
@@ -196,15 +245,13 @@ def get_aba_por_codigo(codigo: str) -> Optional[str]:
         return None
     
     codigo_str = str(codigo).strip()
-    conn = get_connection()
-    cursor = conn.cursor()
+    session = get_session()
     
     try:
-        cursor.execute("SELECT aba FROM codigo_aba WHERE codigo = ?", (codigo_str,))
-        row = cursor.fetchone()
-        return row[0] if row else None
+        registro = session.query(CodigoAba).filter(CodigoAba.codigo == codigo_str).first()
+        return registro.aba if registro else None
     finally:
-        conn.close()
+        session.close()
 
 
 def get_todos_codigos() -> List[Dict[str, str]]:
@@ -214,14 +261,13 @@ def get_todos_codigos() -> List[Dict[str, str]]:
     Returns:
         Lista de dicionários com 'codigo' e 'aba'
     """
-    conn = get_connection()
-    cursor = conn.cursor()
+    session = get_session()
     
     try:
-        cursor.execute("SELECT codigo, aba FROM codigo_aba ORDER BY codigo")
-        return [{"codigo": row[0], "aba": row[1]} for row in cursor.fetchall()]
+        registros = session.query(CodigoAba).order_by(CodigoAba.codigo).all()
+        return [{"codigo": r.codigo, "aba": r.aba} for r in registros]
     finally:
-        conn.close()
+        session.close()
 
 
 def adicionar_codigo(codigo: str, aba: str) -> Tuple[bool, str]:
@@ -248,26 +294,24 @@ def adicionar_codigo(codigo: str, aba: str) -> Tuple[bool, str]:
     if aba not in ("servidor", "patronal-gilrat"):
         return False, "Aba deve ser 'servidor' ou 'patronal-gilrat'."
     
-    conn = get_connection()
-    cursor = conn.cursor()
+    session = get_session()
     
     try:
         # Verifica se já existe
-        cursor.execute("SELECT codigo FROM codigo_aba WHERE codigo = ?", (codigo_str,))
-        if cursor.fetchone():
+        existe = session.query(CodigoAba).filter(CodigoAba.codigo == codigo_str).first()
+        if existe:
             return False, f"Código {codigo_str} já existe."
         
         # Insere
-        cursor.execute(
-            "INSERT INTO codigo_aba (codigo, aba) VALUES (?, ?)",
-            (codigo_str, aba)
-        )
-        conn.commit()
+        novo_codigo = CodigoAba(codigo=codigo_str, aba=aba)
+        session.add(novo_codigo)
+        session.commit()
         return True, f"Código {codigo_str} adicionado com sucesso."
-    except sqlite3.Error as e:
+    except SQLAlchemyError as e:
+        session.rollback()
         return False, f"Erro ao adicionar código: {str(e)}"
     finally:
-        conn.close()
+        session.close()
 
 
 def remover_codigo(codigo: str) -> Tuple[bool, str]:
@@ -284,21 +328,21 @@ def remover_codigo(codigo: str) -> Tuple[bool, str]:
         return False, "Código não pode ser vazio."
     
     codigo_str = str(codigo).strip()
-    conn = get_connection()
-    cursor = conn.cursor()
+    session = get_session()
     
     try:
-        cursor.execute("DELETE FROM codigo_aba WHERE codigo = ?", (codigo_str,))
-        conn.commit()
-        
-        if cursor.rowcount == 0:
+        registro = session.query(CodigoAba).filter(CodigoAba.codigo == codigo_str).first()
+        if not registro:
             return False, f"Código {codigo_str} não encontrado."
         
+        session.delete(registro)
+        session.commit()
         return True, f"Código {codigo_str} removido com sucesso."
-    except sqlite3.Error as e:
+    except SQLAlchemyError as e:
+        session.rollback()
         return False, f"Erro ao remover código: {str(e)}"
     finally:
-        conn.close()
+        session.close()
 
 
 # ======================================================================
@@ -323,15 +367,13 @@ def get_uo_por_cnpj(cnpj: str) -> Optional[str]:
     if not cnpj_formatado:
         return None
     
-    conn = get_connection()
-    cursor = conn.cursor()
+    session = get_session()
     
     try:
-        cursor.execute("SELECT uo_contribuinte FROM cnpj_uo WHERE cnpj = ?", (cnpj_formatado,))
-        row = cursor.fetchone()
-        return row[0] if row else None
+        registro = session.query(CnpjUo).filter(CnpjUo.cnpj == cnpj_formatado).first()
+        return registro.uo_contribuinte if registro else None
     finally:
-        conn.close()
+        session.close()
 
 
 def get_todos_cnpjs() -> List[Dict[str, str]]:
@@ -341,14 +383,13 @@ def get_todos_cnpjs() -> List[Dict[str, str]]:
     Returns:
         Lista de dicionários com 'cnpj' e 'uo_contribuinte'
     """
-    conn = get_connection()
-    cursor = conn.cursor()
+    session = get_session()
     
     try:
-        cursor.execute("SELECT cnpj, uo_contribuinte FROM cnpj_uo ORDER BY cnpj")
-        return [{"cnpj": row[0], "uo_contribuinte": row[1]} for row in cursor.fetchall()]
+        registros = session.query(CnpjUo).order_by(CnpjUo.cnpj).all()
+        return [{"cnpj": r.cnpj, "uo_contribuinte": r.uo_contribuinte} for r in registros]
     finally:
-        conn.close()
+        session.close()
 
 
 def adicionar_cnpj(cnpj: str, uo_contribuinte: str) -> Tuple[bool, str]:
@@ -382,26 +423,24 @@ def adicionar_cnpj(cnpj: str, uo_contribuinte: str) -> Tuple[bool, str]:
     if not re.match(r"^\d+$", uo_str):
         return False, "UO Contribuinte deve ser um código numérico."
     
-    conn = get_connection()
-    cursor = conn.cursor()
+    session = get_session()
     
     try:
         # Verifica se já existe
-        cursor.execute("SELECT cnpj FROM cnpj_uo WHERE cnpj = ?", (cnpj_formatado,))
-        if cursor.fetchone():
+        existe = session.query(CnpjUo).filter(CnpjUo.cnpj == cnpj_formatado).first()
+        if existe:
             return False, f"CNPJ {cnpj_formatado} já existe."
         
         # Insere
-        cursor.execute(
-            "INSERT INTO cnpj_uo (cnpj, uo_contribuinte) VALUES (?, ?)",
-            (cnpj_formatado, uo_str)
-        )
-        conn.commit()
+        novo_cnpj = CnpjUo(cnpj=cnpj_formatado, uo_contribuinte=uo_str)
+        session.add(novo_cnpj)
+        session.commit()
         return True, f"CNPJ {cnpj_formatado} adicionado com sucesso."
-    except sqlite3.Error as e:
+    except SQLAlchemyError as e:
+        session.rollback()
         return False, f"Erro ao adicionar CNPJ: {str(e)}"
     finally:
-        conn.close()
+        session.close()
 
 
 def remover_cnpj(cnpj: str) -> Tuple[bool, str]:
@@ -422,19 +461,18 @@ def remover_cnpj(cnpj: str) -> Tuple[bool, str]:
     if not cnpj_formatado:
         return False, "CNPJ inválido (deve ter 14 dígitos)."
     
-    conn = get_connection()
-    cursor = conn.cursor()
+    session = get_session()
     
     try:
-        cursor.execute("DELETE FROM cnpj_uo WHERE cnpj = ?", (cnpj_formatado,))
-        conn.commit()
-        
-        if cursor.rowcount == 0:
+        registro = session.query(CnpjUo).filter(CnpjUo.cnpj == cnpj_formatado).first()
+        if not registro:
             return False, f"CNPJ {cnpj_formatado} não encontrado."
         
+        session.delete(registro)
+        session.commit()
         return True, f"CNPJ {cnpj_formatado} removido com sucesso."
-    except sqlite3.Error as e:
+    except SQLAlchemyError as e:
+        session.rollback()
         return False, f"Erro ao remover CNPJ: {str(e)}"
     finally:
-        conn.close()
-
+        session.close()
