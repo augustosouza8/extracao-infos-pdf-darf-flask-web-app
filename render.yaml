@@ -2,6 +2,8 @@ services:
   - type: web
     name: extracao-infos-pdf-darf
     env: python
+    # Força Python 3.12 (rapidocr-onnxruntime não suporta Python 3.13)
+    runtime: python-3.12.7
     buildCommand: pip install -r requirements.txt
     startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
     envVars:
@@ -16,7 +18,5 @@ services:
       - key: MS_TENANT_ID
         sync: false
         optional: true
-    # Volume persistente para config.db (IMPORTANTE)
-    # Nota: Volumes devem ser criados manualmente no painel do Render
-    # e o caminho deve ser configurado via variável de ambiente RENDER_VOLUME_PATH
+    # Usa PostgreSQL (via DATABASE_URL) - não precisa de volume persistente
 

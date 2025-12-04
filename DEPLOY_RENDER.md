@@ -51,6 +51,14 @@ Este documento contém todas as instruções necessárias para fazer deploy da a
 
 ### 4. Configurar Build & Deploy
 
+**Python Version:**
+- O arquivo `runtime.txt` especifica Python 3.12.7
+- **IMPORTANTE**: O Render pode usar Python 3.13 automaticamente, mas `rapidocr-onnxruntime` não suporta Python 3.13
+- **Solução**: Nas configurações do serviço (Settings → Environment), adicione uma variável de ambiente:
+  - **Key**: `PYTHON_VERSION`
+  - **Value**: `3.12.7`
+- Ou use o `render.yaml` que já está configurado com `runtime: python-3.12.7`
+
 **Build Command:**
 ```
 pip install -r requirements.txt
@@ -63,6 +71,11 @@ gunicorn app:app --bind 0.0.0.0:$PORT
 
 **OU** use o `Procfile` (Render detecta automaticamente):
 - Se o `Procfile` estiver presente, o Render usará automaticamente o comando definido nele
+
+**Nota sobre Python 3.13:**
+- Se você ver erros como "No matching distribution found for rapidocr-onnxruntime>=1.3.0", o Render está usando Python 3.13
+- **Solução rápida**: Nas configurações do serviço, adicione `PYTHON_VERSION=3.12.7` nas variáveis de ambiente
+- Ou use o `render.yaml` que força Python 3.12.7
 
 ### 5. Configurar Variáveis de Ambiente
 
@@ -147,9 +160,12 @@ No painel do Web Service, vá em **"Environment"** e adicione:
 
 ## Troubleshooting
 
-### Erro: "Module not found"
+### Erro: "Module not found" ou "No matching distribution found"
 - Verifique se todas as dependências estão no `requirements.txt`
 - Verifique os logs de build
+- Se o erro for com `rapidocr-onnxruntime`, verifique se o Python está na versão 3.12 (não 3.13)
+- O `runtime.txt` especifica Python 3.12.7, mas o Render pode usar 3.13 automaticamente
+- **Solução**: Nas configurações do serviço (Settings → Environment), force Python 3.12
 
 ### Erro: "Port already in use"
 - O Render define a porta automaticamente via `$PORT`
