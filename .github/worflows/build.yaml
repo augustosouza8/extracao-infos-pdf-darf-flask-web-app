@@ -1,0 +1,35 @@
+name: Build Image
+
+on:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Login to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: automatiza.azurecr.io
+          username: ${{ secrets.REGISTRY_USER }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Build Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            automatiza.azurecr.io/${{ github.repository_owner }}/extracao-infos-pdf-darf:latest
+            automatiza.azurecr.io/${{ github.repository_owner }}/extracao-infos-pdf-darf:${{ github.sha }}
+          cache-from: type=registry,ref=automatiza.azurecr.io/${{ github.repository_owner }}/extracao-infos-pdf-darf:latest
+          cache-to: type=inline
