@@ -1216,7 +1216,7 @@ def processar_pdf(pdf_path: Path) -> list[dict]:
 # ==========================
 
 # Importa funções do módulo de configuração
-from config_db import get_aba_por_codigo, get_uo_por_cnpj
+from app.database import get_aba_por_codigo, get_uo_por_cnpj
 
 # Importa funções de formatação do módulo utils
 try:

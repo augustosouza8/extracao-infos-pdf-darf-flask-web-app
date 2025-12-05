@@ -20,7 +20,7 @@ from app.utils.formatters import (
     limpar_data,
 )
 from app.utils.errors import coletar_erros_registro, formatar_linha_erro
-from config_db import get_uo_por_cnpj
+from app.database import get_uo_por_cnpj
 
 
 def formatar_linha_patronal_gilrat(registro: dict) -> dict:

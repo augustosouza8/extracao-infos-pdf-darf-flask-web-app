@@ -6,7 +6,7 @@ Contém as rotas REST para gerenciar códigos → abas e CNPJs → UO Contribuin
 
 from flask import Blueprint, request, jsonify
 
-from config_db import (
+from app.database import (
     get_todos_codigos,
     get_todos_cnpjs,
     adicionar_codigo,

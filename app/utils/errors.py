@@ -5,7 +5,7 @@ Centraliza a lógica de coleta, categorização e formatação de erros
 para a aba de erros do Excel.
 """
 
-from config_db import get_aba_por_codigo, get_uo_por_cnpj
+from app.database import get_aba_por_codigo, get_uo_por_cnpj
 
 
 def coletar_erros_registro(registro: dict) -> list[dict]:

@@ -1,27 +1,32 @@
 """
-Módulo de gerenciamento de configurações usando SQLAlchemy.
+Módulo de gerenciamento de configurações usando Flask-SQLAlchemy.
 
-Suporta PostgreSQL (produção no Render) e SQLite (desenvolvimento local).
+Suporta PostgreSQL (produção no Azure/Render) e SQLite (desenvolvimento local).
 
 Gerencia as regras de mapeamento:
 - Códigos → Abas (servidor/patronal-gilrat)
 - CNPJ → UO Contribuinte
 
-O banco de dados é criado automaticamente se não existir.
-Valores padrão são inseridos na primeira inicialização.
+Nota: O banco de dados deve ser inicializado via migrations (Flask-Migrate)
+e dados padrão populados via comando CLI (flask init-db).
 """
 
-import os
 import re
-from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 
-from sqlalchemy import create_engine, Column, String, CheckConstraint, text
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from sqlalchemy.exc import SQLAlchemyError
 
-# Base para modelos SQLAlchemy
-Base = declarative_base()
+# Importa db e modelos - deve ser feito dentro de funções que usam contexto Flask
+# para evitar problemas de import circular
+def _get_db():
+    """Retorna a instância db do Flask-SQLAlchemy."""
+    from app import db
+    return db
+
+def _get_models():
+    """Retorna os modelos."""
+    from app.models import CodigoAba, CnpjUo
+    return CodigoAba, CnpjUo
 
 # Valores padrão para códigos → abas
 CODIGOS_PADRAO = [
@@ -53,119 +58,6 @@ CNPJS_PADRAO = [
     ("50.629.390/0001-31", "1711"),
     ("50.941.185/0001-07", "1721"),
 ]
-
-
-# ======================================================================
-# MODELOS SQLALCHEMY
-# ======================================================================
-
-class CodigoAba(Base):
-    """Modelo para tabela de códigos → abas."""
-    __tablename__ = "codigo_aba"
-    
-    codigo = Column(String, primary_key=True)
-    aba = Column(String, nullable=False)
-    
-    __table_args__ = (
-        CheckConstraint("aba IN ('servidor', 'patronal-gilrat')", name="check_aba"),
-    )
-
-
-class CnpjUo(Base):
-    """Modelo para tabela de CNPJ → UO Contribuinte."""
-    __tablename__ = "cnpj_uo"
-    
-    cnpj = Column(String, primary_key=True)
-    uo_contribuinte = Column(String, nullable=False)
-
-
-# ======================================================================
-# CONFIGURAÇÃO DO BANCO DE DADOS
-# ======================================================================
-
-def get_database_url() -> str:
-    """
-    Retorna a URL de conexão do banco de dados.
-    
-    Prioridade:
-    1. DATABASE_URL (PostgreSQL no Render)
-    2. SQLite local (desenvolvimento)
-    """
-    # PostgreSQL no Render (produção)
-    database_url = os.getenv("DATABASE_URL")
-    if database_url:
-        # Render pode fornecer postgres:// mas SQLAlchemy precisa postgresql://
-        if database_url.startswith("postgres://"):
-            database_url = database_url.replace("postgres://", "postgresql://", 1)
-        return database_url
-    
-    # SQLite local (desenvolvimento)
-    db_path = Path(__file__).parent / "config.db"
-    return f"sqlite:///{db_path}"
-
-
-# Cria engine e sessionmaker
-_engine = None
-_SessionLocal = None
-
-
-def get_engine():
-    """Retorna o engine SQLAlchemy (singleton)."""
-    global _engine
-    if _engine is None:
-        database_url = get_database_url()
-        _engine = create_engine(
-            database_url,
-            echo=False,  # Mude para True para debug SQL
-            pool_pre_ping=True,  # Verifica conexões antes de usar (importante para PostgreSQL)
-        )
-    return _engine
-
-
-def get_session() -> Session:
-    """Retorna uma sessão SQLAlchemy."""
-    global _SessionLocal
-    if _SessionLocal is None:
-        _SessionLocal = sessionmaker(bind=get_engine())
-    return _SessionLocal()
-
-
-def init_db():
-    """
-    Inicializa o banco de dados criando as tabelas se não existirem
-    e populando com valores padrão se estiverem vazias.
-    """
-    engine = get_engine()
-    
-    # Cria todas as tabelas
-    Base.metadata.create_all(engine)
-    
-    # Popula com valores padrão se as tabelas estiverem vazias
-    session = get_session()
-    try:
-        # Verifica se codigo_aba está vazia
-        count_codigos = session.query(CodigoAba).count()
-        if count_codigos == 0:
-            for codigo, aba in CODIGOS_PADRAO:
-                session.add(CodigoAba(codigo=codigo, aba=aba))
-            session.commit()
-        
-        # Verifica se cnpj_uo está vazia
-        count_cnpjs = session.query(CnpjUo).count()
-        if count_cnpjs == 0:
-            for cnpj, uo in CNPJS_PADRAO:
-                session.add(CnpjUo(cnpj=cnpj, uo_contribuinte=uo))
-            session.commit()
-    except Exception as e:
-        session.rollback()
-        print(f"Erro ao inicializar banco de dados: {e}")
-        raise
-    finally:
-        session.close()
-
-
-# Inicializa o banco na importação do módulo
-init_db()
 
 
 # ======================================================================
@@ -228,6 +120,39 @@ def validar_cnpj(cnpj: str) -> bool:
 
 
 # ======================================================================
+# FUNÇÃO PARA POPULAÇÃO DE DADOS PADRÃO
+# ======================================================================
+
+def init_db_data():
+    """
+    Popula o banco de dados com valores padrão se as tabelas estiverem vazias.
+    
+    Esta função deve ser chamada via comando CLI após as migrations.
+    Flask-SQLAlchemy gerencia as sessões automaticamente.
+    """
+    db = _get_db()
+    CodigoAba, CnpjUo = _get_models()
+    
+    try:
+        # Verifica se codigo_aba está vazia
+        count_codigos = db.session.query(CodigoAba).count()
+        if count_codigos == 0:
+            for codigo, aba in CODIGOS_PADRAO:
+                db.session.add(CodigoAba(codigo=codigo, aba=aba))
+            db.session.commit()
+        
+        # Verifica se cnpj_uo está vazia
+        count_cnpjs = db.session.query(CnpjUo).count()
+        if count_cnpjs == 0:
+            for cnpj, uo in CNPJS_PADRAO:
+                db.session.add(CnpjUo(cnpj=cnpj, uo_contribuinte=uo))
+            db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        raise Exception(f"Erro ao inicializar banco de dados: {e}")
+
+
+# ======================================================================
 # FUNÇÕES PARA CÓDIGOS → ABAS
 # ======================================================================
 
@@ -245,13 +170,12 @@ def get_aba_por_codigo(codigo: str) -> Optional[str]:
         return None
     
     codigo_str = str(codigo).strip()
-    session = get_session()
+    db = _get_db()
+    CodigoAba, _ = _get_models()
     
-    try:
-        registro = session.query(CodigoAba).filter(CodigoAba.codigo == codigo_str).first()
-        return registro.aba if registro else None
-    finally:
-        session.close()
+    # Flask-SQLAlchemy gerencia a sessão automaticamente
+    registro = db.session.query(CodigoAba).filter(CodigoAba.codigo == codigo_str).first()
+    return registro.aba if registro else None
 
 
 def get_todos_codigos() -> List[Dict[str, str]]:
@@ -261,13 +185,11 @@ def get_todos_codigos() -> List[Dict[str, str]]:
     Returns:
         Lista de dicionários com 'codigo' e 'aba'
     """
-    session = get_session()
+    db = _get_db()
+    CodigoAba, _ = _get_models()
     
-    try:
-        registros = session.query(CodigoAba).order_by(CodigoAba.codigo).all()
-        return [{"codigo": r.codigo, "aba": r.aba} for r in registros]
-    finally:
-        session.close()
+    registros = db.session.query(CodigoAba).order_by(CodigoAba.codigo).all()
+    return [{"codigo": r.codigo, "aba": r.aba} for r in registros]
 
 
 def adicionar_codigo(codigo: str, aba: str) -> Tuple[bool, str]:
@@ -294,24 +216,23 @@ def adicionar_codigo(codigo: str, aba: str) -> Tuple[bool, str]:
     if aba not in ("servidor", "patronal-gilrat"):
         return False, "Aba deve ser 'servidor' ou 'patronal-gilrat'."
     
-    session = get_session()
+    db = _get_db()
+    CodigoAba, _ = _get_models()
     
     try:
         # Verifica se já existe
-        existe = session.query(CodigoAba).filter(CodigoAba.codigo == codigo_str).first()
+        existe = db.session.query(CodigoAba).filter(CodigoAba.codigo == codigo_str).first()
         if existe:
             return False, f"Código {codigo_str} já existe."
         
         # Insere
         novo_codigo = CodigoAba(codigo=codigo_str, aba=aba)
-        session.add(novo_codigo)
-        session.commit()
+        db.session.add(novo_codigo)
+        db.session.commit()
         return True, f"Código {codigo_str} adicionado com sucesso."
     except SQLAlchemyError as e:
-        session.rollback()
+        db.session.rollback()
         return False, f"Erro ao adicionar código: {str(e)}"
-    finally:
-        session.close()
 
 
 def remover_codigo(codigo: str) -> Tuple[bool, str]:
@@ -328,21 +249,20 @@ def remover_codigo(codigo: str) -> Tuple[bool, str]:
         return False, "Código não pode ser vazio."
     
     codigo_str = str(codigo).strip()
-    session = get_session()
+    db = _get_db()
+    CodigoAba, _ = _get_models()
     
     try:
-        registro = session.query(CodigoAba).filter(CodigoAba.codigo == codigo_str).first()
+        registro = db.session.query(CodigoAba).filter(CodigoAba.codigo == codigo_str).first()
         if not registro:
             return False, f"Código {codigo_str} não encontrado."
         
-        session.delete(registro)
-        session.commit()
+        db.session.delete(registro)
+        db.session.commit()
         return True, f"Código {codigo_str} removido com sucesso."
     except SQLAlchemyError as e:
-        session.rollback()
+        db.session.rollback()
         return False, f"Erro ao remover código: {str(e)}"
-    finally:
-        session.close()
 
 
 # ======================================================================
@@ -367,13 +287,11 @@ def get_uo_por_cnpj(cnpj: str) -> Optional[str]:
     if not cnpj_formatado:
         return None
     
-    session = get_session()
+    db = _get_db()
+    _, CnpjUo = _get_models()
     
-    try:
-        registro = session.query(CnpjUo).filter(CnpjUo.cnpj == cnpj_formatado).first()
-        return registro.uo_contribuinte if registro else None
-    finally:
-        session.close()
+    registro = db.session.query(CnpjUo).filter(CnpjUo.cnpj == cnpj_formatado).first()
+    return registro.uo_contribuinte if registro else None
 
 
 def get_todos_cnpjs() -> List[Dict[str, str]]:
@@ -383,13 +301,11 @@ def get_todos_cnpjs() -> List[Dict[str, str]]:
     Returns:
         Lista de dicionários com 'cnpj' e 'uo_contribuinte'
     """
-    session = get_session()
+    db = _get_db()
+    _, CnpjUo = _get_models()
     
-    try:
-        registros = session.query(CnpjUo).order_by(CnpjUo.cnpj).all()
-        return [{"cnpj": r.cnpj, "uo_contribuinte": r.uo_contribuinte} for r in registros]
-    finally:
-        session.close()
+    registros = db.session.query(CnpjUo).order_by(CnpjUo.cnpj).all()
+    return [{"cnpj": r.cnpj, "uo_contribuinte": r.uo_contribuinte} for r in registros]
 
 
 def adicionar_cnpj(cnpj: str, uo_contribuinte: str) -> Tuple[bool, str]:
@@ -423,24 +339,23 @@ def adicionar_cnpj(cnpj: str, uo_contribuinte: str) -> Tuple[bool, str]:
     if not re.match(r"^\d+$", uo_str):
         return False, "UO Contribuinte deve ser um código numérico."
     
-    session = get_session()
+    db = _get_db()
+    _, CnpjUo = _get_models()
     
     try:
         # Verifica se já existe
-        existe = session.query(CnpjUo).filter(CnpjUo.cnpj == cnpj_formatado).first()
+        existe = db.session.query(CnpjUo).filter(CnpjUo.cnpj == cnpj_formatado).first()
         if existe:
             return False, f"CNPJ {cnpj_formatado} já existe."
         
         # Insere
         novo_cnpj = CnpjUo(cnpj=cnpj_formatado, uo_contribuinte=uo_str)
-        session.add(novo_cnpj)
-        session.commit()
+        db.session.add(novo_cnpj)
+        db.session.commit()
         return True, f"CNPJ {cnpj_formatado} adicionado com sucesso."
     except SQLAlchemyError as e:
-        session.rollback()
+        db.session.rollback()
         return False, f"Erro ao adicionar CNPJ: {str(e)}"
-    finally:
-        session.close()
 
 
 def remover_cnpj(cnpj: str) -> Tuple[bool, str]:
@@ -461,18 +376,17 @@ def remover_cnpj(cnpj: str) -> Tuple[bool, str]:
     if not cnpj_formatado:
         return False, "CNPJ inválido (deve ter 14 dígitos)."
     
-    session = get_session()
+    db = _get_db()
+    _, CnpjUo = _get_models()
     
     try:
-        registro = session.query(CnpjUo).filter(CnpjUo.cnpj == cnpj_formatado).first()
+        registro = db.session.query(CnpjUo).filter(CnpjUo.cnpj == cnpj_formatado).first()
         if not registro:
             return False, f"CNPJ {cnpj_formatado} não encontrado."
         
-        session.delete(registro)
-        session.commit()
+        db.session.delete(registro)
+        db.session.commit()
         return True, f"CNPJ {cnpj_formatado} removido com sucesso."
     except SQLAlchemyError as e:
-        session.rollback()
+        db.session.rollback()
         return False, f"Erro ao remover CNPJ: {str(e)}"
-    finally:
-        session.close()

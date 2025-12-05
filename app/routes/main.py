@@ -9,7 +9,7 @@ from pathlib import Path
 from flask import Blueprint, render_template, request, send_file, flash, redirect, url_for
 from werkzeug.utils import secure_filename
 
-from parse_darf import processar_pdf
+from app.services.pdf_parser import processar_pdf
 from app.utils.validators import allowed_file
 from app.utils.errors import coletar_erros_registro
 from app.services.excel_generator import (
@@ -17,7 +17,7 @@ from app.services.excel_generator import (
     formatar_linha_patronal_gilrat,
     gerar_excel,
 )
-from config_db import get_aba_por_codigo
+from app.database import get_aba_por_codigo
 
 bp = Blueprint("main", __name__)
 
