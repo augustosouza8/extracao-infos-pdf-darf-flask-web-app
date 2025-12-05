@@ -107,4 +107,3 @@ def create_app(config_class=Config):
 # Cria instância do app para compatibilidade com gunicorn app:app
 # Isso permite que tanto wsgi:app quanto app:app funcionem
 app = create_app()
-
