@@ -31,4 +31,4 @@ COPY . .
 EXPOSE 5000
 
 # 9. Comando para iniciar sua aplicação (similar ao seu Procfile)
-CMD ["gunicorn", "wsgi:app", "--bind", "0.0.0.0:5000"]
+CMD ["gunicorn", "wsgi:app", "--bind", "0.0.0.0:5000", "--timeout", "3600"]
