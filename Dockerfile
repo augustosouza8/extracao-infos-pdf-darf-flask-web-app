@@ -27,8 +27,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 # 7. Copia todo o restante do código do seu projeto para dentro do container
 COPY . .
 
-# 8. Expõe a porta 5000 (padrão do Flask) para a Azure conseguir conversar com o container
+# 8. Copia o entrypoint e dá permissão de execução
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+
+# 9. Expõe a porta 5000 (padrão do Flask) para a Azure conseguir conversar com o container
 EXPOSE 5000
 
-# 9. Comando para iniciar sua aplicação (similar ao seu Procfile)
+# 10. EntryPoint: inicializa DB e depois executa o CMD (gunicorn)
+ENTRYPOINT ["/app/entrypoint.sh"]
+
+# 11. Comando para iniciar sua aplicação (similar ao seu Procfile)
 CMD ["gunicorn", "wsgi:app", "--bind", "0.0.0.0:5000", "--timeout", "3600"]
