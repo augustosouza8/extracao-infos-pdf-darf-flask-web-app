@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError
 
 from app import create_app, db
-from app.database.default_data import init_db_data  # ajuste o import se o nome do arquivo for diferente
+from app.database import init_db_data
 
 LOCK_ID = 924501  # qualquer inteiro fixo serve (use um "id do projeto")
 
