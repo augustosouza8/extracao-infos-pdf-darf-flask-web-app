@@ -35,7 +35,7 @@ RUN chmod +x /app/entrypoint.sh
 EXPOSE 5000
 
 # 10. EntryPoint: inicializa DB e depois executa o CMD (gunicorn)
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["sh", "/app/entrypoint.sh"]
 
 # 11. Comando para iniciar sua aplicação (similar ao seu Procfile)
 CMD ["gunicorn", "wsgi:app", "--bind", "0.0.0.0:5000", "--timeout", "3600"]
