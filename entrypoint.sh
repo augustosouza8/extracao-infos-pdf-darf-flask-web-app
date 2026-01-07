@@ -1,3 +1,4 @@
+#!/bin/sh
 set -e
 
 echo ">> [startup] inicializando banco (create_all + seed)..."
