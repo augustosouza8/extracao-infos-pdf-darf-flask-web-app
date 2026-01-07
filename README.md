@@ -1,25 +1,33 @@
 # Extrator de Informações DARF
 
-Aplicação Flask para extrair informações de PDFs de DARF e gerar arquivos Excel consolidados.
+Aplicação Flask para extrair informações de PDFs de DARF e gerar arquivos Excel consolidados (com abas **servidor**, **patronal-gilrat** e **erros**).
+
+---
 
 ## Estrutura do Projeto
 
 ```
 .
 ├── app/                    # Aplicação Flask
-│   ├── static/            # Arquivos estáticos (CSS, JS, imagens)
-│   ├── templates/         # Templates HTML
-│   ├── routes/            # Rotas da aplicação
-│   ├── services/          # Serviços (geração de Excel)
-│   ├── utils/             # Utilitários (formatters, validators, errors)
-│   ├── models.py          # Modelos SQLAlchemy
-│   └── config.py          # Configurações
-├── migrations/             # Migrations do banco de dados (Flask-Migrate)
-├── wsgi.py                # Ponto de entrada WSGI
-├── config_db.py           # Gerenciamento do banco de dados
-├── parse_darf.py          # Processamento de PDFs
-└── requirements.txt       # Dependências Python
+│   ├── static/             # Arquivos estáticos (CSS, JS, imagens)
+│   ├── templates/          # Templates HTML
+│   ├── routes/             # Rotas da aplicação (main + API de regras)
+│   ├── services/           # Serviços (parser de PDF, geração de Excel)
+│   ├── utils/              # Utilitários (formatters, validators, errors)
+│   ├── models.py           # Modelos SQLAlchemy
+│   ├── database/           # Regras e dados padrão (CODIGOS_PADRAO/CNPJS_PADRAO)
+│   └── config.py           # Configurações
+├── migrations/             # Migrations do banco (Flask-Migrate), quando aplicável
+├── scripts/
+│   └── init_db.py          # Inicialização/seed automática do banco no startup
+├── entrypoint.sh           # EntryPoint do container (roda init_db e inicia Gunicorn)
+├── Dockerfile              # Build do container (Azure App Service for Containers)
+├── wsgi.py                 # Ponto de entrada WSGI
+├── parse_darf.py           # (legado) processamento de PDFs / utilitário
+└── requirements.txt        # Dependências Python
 ```
+
+---
 
 ## Configuração Local
 
@@ -33,19 +41,23 @@ Aplicação Flask para extrair informações de PDFs de DARF e gerar arquivos Ex
 2. Copie o `.env.example` para `.env` e defina:
    - `FLASK_SECRET_KEY`: qualquer valor secreto aleatório (não compartilhe).
    - `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`: dados do aplicativo configurado no Microsoft Entra ID.
-   - `DATABASE_URL`: (opcional) URL do PostgreSQL. Se não definido, usa SQLite local (`config.db`).
+   - `DATABASE_URL`: (opcional) URL do PostgreSQL. Se não definido, usa SQLite local (arquivo `config.db`).
 
-3. No portal do Entra ID configure o Redirect URI para `http://localhost:5000/auth/redirect`. O app Flask usa exatamente esse valor internamente (`REDIRECT_URI`), então ele precisa coincidir.
+3. No portal do Entra ID configure o Redirect URI para `http://localhost:5000/auth/redirect`.  
+   O app Flask usa exatamente esse valor internamente, então ele precisa coincidir.
 
-4. Inicialize o banco de dados:
+4. Inicialize o banco de dados (opcional em dev):
    ```bash
    flask db upgrade
    flask init-db
    ```
 
+---
+
 ## Execução Local
 
-1. Exporte as variáveis do `.env` (caso sua ferramenta não faça isso automaticamente). Com `python-dotenv`, basta manter o arquivo na raiz.
+1. Exporte as variáveis do `.env` (caso sua ferramenta não faça isso automaticamente).  
+   Com `python-dotenv`, basta manter o arquivo na raiz.
 
 2. Rode o servidor de desenvolvimento:
    ```bash
@@ -54,30 +66,47 @@ Aplicação Flask para extrair informações de PDFs de DARF e gerar arquivos Ex
    python wsgi.py
    ```
 
-3. Acesse `http://localhost:5000/`. A autenticação Microsoft redirecionará para `http://localhost:5000/auth/redirect`, evitando erros AADSTS900971.
+3. Acesse `http://localhost:5000/`. A autenticação Microsoft redirecionará para `http://localhost:5000/auth/redirect`.
 
-## Deploy na Azure
+---
+
+## Deploy na Azure (App Service for Containers)
+
+### Visão geral (atualizado)
+
+A aplicação é executada em container usando `Dockerfile` + `entrypoint.sh`.
+
+No **startup do container**, o `entrypoint.sh` executa:
+1. `python -m scripts.init_db` (cria tabelas e popula dados padrão)
+2. inicia o Gunicorn (`wsgi:app`)
+
+Isso elimina a necessidade de entrar via SSH para executar `flask init-db` manualmente após o deploy.
+
+> **Nota sobre migrations:** se você estiver usando Flask-Migrate/Alembic em produção, mantenha `flask db upgrade` no seu pipeline (ou adapte `scripts/init_db.py` para executar migrations antes do seed). O seed padrão é idempotente e só insere valores quando as tabelas estão vazias.
 
 ### Pré-requisitos
 
-- Conta Azure com Azure App Service configurado
-- Azure Database for PostgreSQL (ou outro banco PostgreSQL)
+- Azure App Service for Containers
+- Banco PostgreSQL (Azure Database for PostgreSQL, Render, etc.)
 - Aplicativo registrado no Microsoft Entra ID
 
 ### Variáveis de Ambiente na Azure
 
-Configure as seguintes variáveis de ambiente no Azure App Service:
+Configure as seguintes variáveis de ambiente no Azure App Service (Configuration → Application settings):
 
-1. **FLASK_SECRET_KEY**: Chave secreta para sessões Flask (gerar valor aleatório seguro)
-2. **DATABASE_URL**: URL de conexão do PostgreSQL no formato:
-   ```
-   postgresql://usuario:senha@servidor:porta/nome_banco
-   ```
-   Nota: Se a Azure fornecer `postgres://`, será automaticamente convertido para `postgresql://`.
+1. **WEBSITES_PORT**: `5000`  
+   (necessário porque o container escuta em `0.0.0.0:5000`)
 
-3. **MS_CLIENT_ID**: ID do aplicativo no Microsoft Entra ID
-4. **MS_CLIENT_SECRET**: Secret do aplicativo no Microsoft Entra ID
-5. **MS_TENANT_ID**: ID do tenant do Microsoft Entra ID
+2. **FLASK_SECRET_KEY**: chave secreta para sessões Flask (gere um valor aleatório seguro)
+
+3. **DATABASE_URL**: URL de conexão PostgreSQL no formato:
+   ```
+   postgresql://usuario:senha@host:porta/nome_banco
+   ```
+   - Se você estiver usando o Render, utilize a **External Database URL**.
+   - Se a plataforma fornecer `postgres://`, o app converte automaticamente para `postgresql://`.
+
+4. **MS_CLIENT_ID**, **MS_CLIENT_SECRET**, **MS_TENANT_ID**: credenciais do Microsoft Entra ID.
 
 ### Configuração do Microsoft Entra ID
 
@@ -86,81 +115,61 @@ No portal do Microsoft Entra ID, configure o Redirect URI para:
 https://seu-app.azurewebsites.net/auth/redirect
 ```
 
-### Deploy via Docker
-
-O projeto inclui um `Dockerfile` otimizado para Azure:
+### Deploy via Docker (local → Azure)
 
 ```bash
 # Build da imagem
 docker build -t extracao-darf .
 
-# Teste local
-docker run -p 5000:5000 -e FLASK_SECRET_KEY=test extracao-darf
-
-# Push para Azure Container Registry (exemplo)
-az acr build --registry seu-registry --image extracao-darf:latest .
+# Teste local (use DATABASE_URL real se quiser testar Postgres)
+docker run -p 5000:5000 -e FLASK_SECRET_KEY=test -e WEBSITES_PORT=5000 extracao-darf
 ```
 
-### Deploy via Git
+### Deploy via GitHub (App Service)
 
-1. Configure o Azure App Service para fazer deploy do repositório Git
-2. O Azure executará automaticamente o build baseado no `Dockerfile`
-3. Após o deploy, execute as migrations:
-   ```bash
-   az webapp ssh --name seu-app --resource-group seu-resource-group
-   flask db upgrade
-   flask init-db
-   ```
+1. Conecte o App Service ao seu repositório (Deployment Center).
+2. O Azure fará o build e o deploy do container com base no `Dockerfile`.
+3. No primeiro start, o `entrypoint.sh` fará a criação/seed do banco automaticamente.
 
-### Migrations do Banco de Dados
+---
 
-O projeto usa Flask-Migrate para gerenciar mudanças no schema do banco:
+## Banco de Dados: seed e regras
 
-```bash
-# Criar nova migration
-flask db migrate -m "Descrição da mudança"
+### Seed automático
+O `scripts/init_db.py` cria as tabelas (quando necessário) e executa o seed com os valores padrão:
+- `CODIGOS_PADRAO`: mapeamento **código → aba** (servidor/patronal-gilrat)
+- `CNPJS_PADRAO`: mapeamento **CNPJ → UO Contribuinte**
 
-# Aplicar migrations
-flask db upgrade
+**Importante:** o seed padrão só insere quando a tabela está vazia (não “completa” itens faltantes se já existir algo).
 
-# Reverter última migration
-flask db downgrade
-```
+### Atualizar regras em produção
+O sistema expõe endpoints para gerenciar regras (códigos/CNPJ) via API. Em produção, recomenda-se proteger esses endpoints (por autenticação ou restrição de rede).
 
-**Importante**: Após o primeiro deploy na Azure, execute:
-```bash
-flask db upgrade  # Cria as tabelas
-flask init-db    # Popula dados padrão
-```
-
-### Comandos Úteis
-
-- `flask init-db`: Inicializa o banco e popula com dados padrão
-- `flask db upgrade`: Aplica todas as migrations pendentes
-- `flask db migrate -m "mensagem"`: Cria nova migration baseada em mudanças nos modelos
-
-## Observações
-
-- Os PDFs enviados são processados por `parse_darf.py` e geram um Excel consolidado baixado via navegador.
-- Garanta que o `.env` não seja versionado (já está contemplado no `.gitignore`).
-- O banco de dados local (SQLite) é usado apenas para desenvolvimento. Em produção, use PostgreSQL.
+---
 
 ## Suporte a PDFs Escaneados (OCR)
 
 O sistema suporta tanto PDFs com texto nativo quanto PDFs escaneados (imagens):
 
-- **PDFs com texto nativo**: O texto é extraído diretamente usando `pdfplumber`, que é rápido e preciso.
-- **PDFs escaneados**: Quando o texto extraído é insuficiente (< 100 caracteres), o sistema usa automaticamente OCR (Reconhecimento Óptico de Caracteres) com `RapidOCR-onnxruntime` para extrair o texto das imagens.
+- **PDFs com texto nativo**: o texto é extraído diretamente usando `pdfplumber`.
+- **PDFs escaneados**: quando o texto extraído é insuficiente, o sistema usa OCR com `RapidOCR-onnxruntime`.
 
-O processamento com OCR é mais lento que a extração de texto nativo, mas permite processar documentos escaneados. O `RapidOCR-onnxruntime` é mais rápido que o PaddleOCR (4-5x) e não requer binários externos, funcionando apenas com `pip install`. Os modelos são baixados automaticamente na primeira execução.
+---
 
 ## Tecnologias Utilizadas
 
-- **Flask**: Framework web
-- **Flask-SQLAlchemy**: ORM para banco de dados
-- **Flask-Migrate**: Gerenciamento de migrations
-- **PostgreSQL/SQLite**: Banco de dados
-- **pdfplumber**: Extração de texto de PDFs
-- **RapidOCR-onnxruntime**: OCR para PDFs escaneados
-- **pandas/openpyxl**: Geração de arquivos Excel
-- **MSAL**: Autenticação Microsoft
+- **Flask**: framework web
+- **Flask-SQLAlchemy**: ORM
+- **Flask-Migrate**: migrations (quando aplicável)
+- **PostgreSQL/SQLite**: banco de dados
+- **pdfplumber**: extração de texto de PDFs
+- **RapidOCR-onnxruntime**: OCR
+- **pandas/openpyxl**: geração de Excel
+- **MSAL**: autenticação Microsoft
+
+---
+
+## Observações
+
+- Em produção, use PostgreSQL (SQLite dentro do container pode ser efêmero conforme a configuração do App Service).
+- Garanta que o `.env` não seja versionado (já contemplado no `.gitignore`).
