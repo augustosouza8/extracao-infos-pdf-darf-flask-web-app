@@ -43,7 +43,7 @@ def formatar_linha_patronal_gilrat(registro: dict) -> dict:
     uo_contribuinte = get_uo_por_cnpj(cnpj) or ""
     nr_doc_numeros = extrair_apenas_numeros(numero_doc)
     codigo_barras_numeros = extrair_apenas_numeros(linha_dig)
-    data_pagamento = calcular_data_menos_um_dia(data_venc)
+    data_pagamento = data_venc
     mes_comp = calcular_mes_anterior()
     historico = f"Folha INSS {mes_comp}"
     
@@ -84,7 +84,7 @@ def formatar_linha_servidor(registro: dict) -> dict:
     uo_contribuinte = get_uo_por_cnpj(cnpj) or ""
     nr_doc_numeros = extrair_apenas_numeros(numero_doc)
     codigo_barras_numeros = extrair_apenas_numeros(linha_dig)
-    data_pagamento = calcular_data_menos_um_dia(data_venc)
+    data_pagamento = data_venc
     mes_comp = calcular_mes_anterior()
     historico = f"Folha INSS {mes_comp}"
     
